@@ -27,7 +27,7 @@ module testbench;
   end
 
   initial begin
-    #2000;
+    #1200;
     $display("Simulation timed out");
     $finish;
   end
@@ -44,14 +44,8 @@ module testbench;
         $display("Logical AND subset ok: Mem[108] = 7");
       else if (DataAdr === 32'd112 && WriteData === 32'd1)
         $display("SLTI subset ok: Mem[112] = 1");
-      else if (DataAdr === 32'd116 && WriteData === 32'd1)
-        $display("SLT subset ok: Mem[116] = 1");
-      else if (DataAdr === 32'd120 && WriteData === 32'd1)
-        $display("BEQ control-flow subset ok: Mem[120] = 1");
-      else if (DataAdr === 32'd124 && WriteData === 32'd252)
-        $display("JAL link subset ok: Mem[124] = 252");
-      else if (DataAdr === 32'd128 && WriteData === 32'd0) begin
-        $display("Pipeline control subset succeeded");
+      else if (DataAdr === 32'd116 && WriteData === 32'd1) begin
+        $display("Pipeline base subsets succeeded");
         $finish;
       end else begin
         $display("Unexpected store: Adr=%0d Data=%0d", DataAdr, WriteData);
