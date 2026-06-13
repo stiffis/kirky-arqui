@@ -13,6 +13,7 @@ module aludec(input  opb5,
   always @* case(ALUOp)
       2'b00:                ALUControl_reg = 3'b000; // addition
       2'b01:                ALUControl_reg = 3'b001; // subtraction
+      2'b11:                ALUControl_reg = 3'b110; // lui (pass B)
       default: case(funct3) // R-type or I-type ALU
                  3'b000:  if (RtypeSub)
                             ALUControl_reg = 3'b001; // sub

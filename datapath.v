@@ -87,6 +87,7 @@ module datapath(input  clk, reset,
   extend ext(
     .instr(InstrD[31:7]),
     .immsrc(ImmSrcD),
+    .op(InstrD[6:0]),
     .immext(ImmExtD)
   );
 

@@ -22,7 +22,7 @@ module alu(input  [31:0] a, b,
       3'b011:  result_reg = a | b; // or
       3'b100:  result_reg = a ^ b; // xor
       3'b101:  result_reg = sum[31] ^ v; // slt
-      3'b110:  result_reg = a << b[4:0]; // sll
+      3'b110:  result_reg = b; // lui pass-through immediate
       3'b111:  result_reg = a >> b[4:0]; // srl
       default: result_reg = 32'bx;
     endcase
