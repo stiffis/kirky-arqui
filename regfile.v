@@ -6,10 +6,10 @@ module regfile(input  clk,
 
   reg [31:0] rf[31:0];
 
-  always @(posedge clk) begin
+  always @(negedge clk) begin
     if (we3) rf[a3] <= wd3;
   end
-  
+
   assign rd1 = (a1 != 0) ? rf[a1] : 0;
   assign rd2 = (a2 != 0) ? rf[a2] : 0;
 endmodule
