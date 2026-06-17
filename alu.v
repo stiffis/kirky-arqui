@@ -1,5 +1,5 @@
 module alu(input  [31:0] a, b,
-           input  [2:0]  alucontrol,
+           input  [3:0]  alucontrol,
            output [31:0] result,
            output zero);
   
@@ -12,18 +12,20 @@ module alu(input  [31:0] a, b,
 
   assign condinvb = alucontrol[0] ? ~b : b;
   assign sum = a + condinvb + alucontrol[0];
-  assign isAddSub = ~alucontrol[2] & ~alucontrol[1] |
-                    ~alucontrol[1] & alucontrol[0];
+  assign isAddSub = (~alucontrol[3] & ~alucontrol[2] & ~alucontrol[1]) |
+                    (~alucontrol[3] & ~alucontrol[2] & alucontrol[0]);
 
   always @* case (alucontrol)
-      3'b000:  result_reg = sum; // add
-      3'b001:  result_reg = sum; // subtract
-      3'b010:  result_reg = a & b; // and
-      3'b011:  result_reg = a | b; // or
-      3'b100:  result_reg = a ^ b; // xor
-      3'b101:  result_reg = sum[31] ^ v; // slt
-      3'b110:  result_reg = b; // lui pass-through immediate
-      3'b111:  result_reg = a >> b[4:0]; // srl
+      4'b0000: result_reg = sum; // add
+      4'b0001: result_reg = sum; // subtract
+      4'b0010: result_reg = a & b; // and
+      4'b0011: result_reg = a | b; // or
+      4'b0100: result_reg = a ^ b; // xor
+      4'b0101: result_reg = sum[31] ^ v; // slt
+      4'b0110: result_reg = b; // lui pass-through immediate
+      4'b0111: result_reg = a << b[4:0]; // sll
+      4'b1000: result_reg = a >> b[4:0]; // srl
+      4'b1001: result_reg = $signed(a) >>> b[4:0]; // sra
       default: result_reg = 32'bx;
     endcase
 

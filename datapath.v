@@ -1,10 +1,11 @@
 module datapath(input  clk, reset,
                 input  [1:0] ResultSrcW,
-                input  PCSrcE, ALUSrcE,
+                input  PCSrcE, ALUSrcE, JalrE,
                 input  RegWriteW,
                 input  [1:0] ImmSrcD,
-                input  [2:0] ALUControlE,
+                input  [3:0] ALUControlE,
                 output ZeroE,
+                output CondBitE,
                 output [6:0] opD,
                 output [2:0] funct3D,
                 output funct7b5D,
@@ -19,7 +20,7 @@ module datapath(input  clk, reset,
   wire [31:0] InstrD, PCD, PCPlus4D;
   wire [31:0] RD1D, RD2D, ImmExtD;
   wire [31:0] RD1E, RD2E, PCE, ImmExtE, PCPlus4E;
-  wire [31:0] SrcBE, ALUResultE, PCTargetE;
+  wire [31:0] SrcBE, ALUResultE, PCTargetE, PCBranchTargetE, PCJalrTargetE;
   wire [31:0] ALUResultW, ReadDataW, PCPlus4M, PCPlus4W;
   wire [31:0] ResultW;
   wire [4:0]  RdD, RdE, RdM, RdW;
@@ -153,8 +154,12 @@ module datapath(input  clk, reset,
   adder pcaddbranch(
     .a(PCE),
     .b(ImmExtE),
-    .y(PCTargetE)
+    .y(PCBranchTargetE)
   );
+
+  assign CondBitE = ALUResultE[0];
+  assign PCJalrTargetE = {ALUResultE[31:1], 1'b0};
+  assign PCTargetE = JalrE ? PCJalrTargetE : PCBranchTargetE;
 
   // EX/MEM pipeline register
   flopr #(WIDTH) exmem_aluresultreg(

@@ -10,9 +10,10 @@ module riscvpipe(input  clk, reset,
   wire [2:0] funct3D;
   wire       funct7b5D;
   wire       ZeroE;
-  wire       PCSrcE, ALUSrcE, RegWriteW;
+  wire       CondBitE;
+  wire       PCSrcE, ALUSrcE, JalrE, RegWriteW;
   wire [1:0] ResultSrcW, ImmSrcD;
-  wire [2:0] ALUControlE;
+  wire [3:0] ALUControlE;
 
   controller c(
     .clk(clk),
@@ -21,10 +22,12 @@ module riscvpipe(input  clk, reset,
     .funct3D(funct3D),
     .funct7b5D(funct7b5D),
     .ZeroE(ZeroE),
+    .CondBitE(CondBitE),
     .ResultSrcW(ResultSrcW),
     .MemWriteM(MemWriteM),
     .PCSrcE(PCSrcE),
     .ALUSrcE(ALUSrcE),
+    .JalrE(JalrE),
     .RegWriteW(RegWriteW),
     .ImmSrcD(ImmSrcD),
     .ALUControlE(ALUControlE)
@@ -36,10 +39,12 @@ module riscvpipe(input  clk, reset,
     .ResultSrcW(ResultSrcW),
     .PCSrcE(PCSrcE),
     .ALUSrcE(ALUSrcE),
+    .JalrE(JalrE),
     .RegWriteW(RegWriteW),
     .ImmSrcD(ImmSrcD),
     .ALUControlE(ALUControlE),
     .ZeroE(ZeroE),
+    .CondBitE(CondBitE),
     .opD(opD),
     .funct3D(funct3D),
     .funct7b5D(funct7b5D),

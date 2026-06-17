@@ -3,22 +3,26 @@ module controller(input  clk, reset,
                   input  [2:0] funct3D,
                   input  funct7b5D,
                   input  ZeroE,
+                  input  CondBitE,
                   output [1:0] ResultSrcW,
                   output MemWriteM,
                   output PCSrcE, ALUSrcE,
+                  output JalrE,
                   output RegWriteW,
                   output [1:0] ImmSrcD,
-                  output [2:0] ALUControlE);
+                  output [3:0] ALUControlE);
   
   wire [1:0] ResultSrcD, ResultSrcE, ResultSrcM;
   wire [1:0] ALUOpD;
   wire       BranchD, BranchE;
+  wire [2:0] funct3E;
   wire       ALUSrcD;
   wire       RegWriteD, RegWriteE, RegWriteM;
   wire       JumpD, JumpE;
+  wire       JalrD;
   wire       MemWriteD, MemWriteE;
-  wire [2:0] ALUControlD;
-  wire [9:0] controlsE_in, controlsE;
+  wire [3:0] ALUControlD;
+  wire [11:0] controlsE_in, controlsE;
   wire [3:0] controlsM_in, controlsM;
   wire [2:0] controlsW_in, controlsW;
 
@@ -30,6 +34,7 @@ module controller(input  clk, reset,
     .ALUSrc(ALUSrcD),
     .RegWrite(RegWriteD),
     .Jump(JumpD),
+    .Jalr(JalrD),
     .ImmSrc(ImmSrcD),
     .ALUOp(ALUOpD)
   );
@@ -42,20 +47,33 @@ module controller(input  clk, reset,
     .ALUControl(ALUControlD)
   );
 
-  assign controlsE_in = {RegWriteD, ResultSrcD, MemWriteD, JumpD,
+  assign controlsE_in = {RegWriteD, ResultSrcD, MemWriteD, JumpD, JalrD,
                          BranchD, ALUControlD, ALUSrcD};
 
-  flopr #(10) regE(
+  flopr #(12) regE(
     .clk(clk),
     .reset(reset),
     .d(controlsE_in),
     .q(controlsE)
   );
 
-  assign {RegWriteE, ResultSrcE, MemWriteE, JumpE,
+  flopr #(3) funct3Ereg(
+    .clk(clk),
+    .reset(reset),
+    .d(funct3D),
+    .q(funct3E)
+  );
+
+  assign {RegWriteE, ResultSrcE, MemWriteE, JumpE, JalrE,
           BranchE, ALUControlE, ALUSrcE} = controlsE;
 
-  assign PCSrcE = (BranchE & ZeroE) | JumpE;
+  assign PCSrcE = JumpE | JalrE |
+                  (BranchE & (
+                    (funct3E == 3'b000 && ZeroE) |
+                    (funct3E == 3'b001 && ~ZeroE) |
+                    (funct3E == 3'b100 && CondBitE) |
+                    (funct3E == 3'b101 && ~CondBitE)
+                  ));
 
   assign controlsM_in = {RegWriteE, ResultSrcE, MemWriteE};
 
