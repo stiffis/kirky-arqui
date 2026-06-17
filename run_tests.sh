@@ -58,8 +58,8 @@ for row in "${TESTS[@]}"; do
 
   out="$(vvp "$sim" 2>/dev/null | grep -v -i 'warning\|vcd')"
 
-  if echo "$out" | grep -q -i -E 'unexpected|timed out|mismatch' \
-     || ! echo "$out" | grep -q -i 'ok'; then
+  if echo "$out" | grep -q -i -E 'fail|unexpected|timed out|mismatch' \
+     || ! echo "$out" | grep -q -i -E 'succe|ok'; then
     printf '  %-7s %sFAIL%s\n' "$name" "$RED" "$RST"
     echo "$out" | sed 's/^/             /'
     fail=$((fail+1))
