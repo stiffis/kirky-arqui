@@ -1,0 +1,9 @@
+# Artefactos de compilacion del runner de regresion
+build/
+
+# Binarios de simulacion (VCS / iverilog)
+simv
+simv_*
+*.vcd
+csrc/
+*.daidir/
