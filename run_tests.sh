@@ -11,11 +11,14 @@ cd "$(dirname "$0")"
 BUILD=build
 mkdir -p "$BUILD"
 
-# Modulos del nucleo (todo menos los testbenches).
+# Modulos del nucleo de diseno (en la raiz; todo menos los testbenches).
 CORE=(adder.v alu.v aludec.v controller.v datapath.v dmem.v extend.v \
       flopr.v imem.v maindec.v mux2.v mux3.v regfile.v riscvpipe.v top.v)
 
-# Tabla de pruebas:  nombre | programa (.txt) | testbench (.v)
+# Pruebas (programas en tests/programs/, testbenches en tests/).
+#   nombre | programa (.txt) | testbench (.v)
+PROGDIR=tests/programs
+TBDIR=tests
 TESTS=(
   "base   | riscvtest_base.txt    | testbench_base.v"
   "ctrl   | riscvtest_ctrl.txt    | testbench_ctrl.v"
@@ -44,9 +47,9 @@ for row in "${TESTS[@]}"; do
   IFS='|' read -r name prog tb <<< "$row"
   name="${name// /}"; prog="${prog// /}"; tb="${tb// /}"
 
-  cp "$prog" riscvtest.txt
+  cp "$PROGDIR/$prog" riscvtest.txt
   sim="$BUILD/sim_$name"
-  if ! iverilog -g2012 -o "$sim" "${CORE[@]}" "$tb" 2> "$BUILD/$name.compile.log"; then
+  if ! iverilog -g2012 -o "$sim" "${CORE[@]}" "$TBDIR/$tb" 2> "$BUILD/$name.compile.log"; then
     printf '  %-7s %sFAIL%s  %s(error de compilacion, ver %s)%s\n' \
       "$name" "$RED" "$RST" "$DIM" "$BUILD/$name.compile.log" "$RST"
     fail=$((fail+1)); continue
