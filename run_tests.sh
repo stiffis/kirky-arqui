@@ -27,6 +27,7 @@ TESTS=(
   "shift  | riscvtest_shift.txt   | testbench_shift.v"
   "branch | riscvtest_branch3.txt | testbench_branch3.v"
   "jalr   | riscvtest_jalr.txt    | testbench_jalr.v"
+  "deps   | riscvtest_deps.txt    | testbench_deps.v"
 )
 
 # imem.v lee "riscvtest.txt" del directorio actual: lo respaldamos y restauramos.
