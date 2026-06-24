@@ -5,7 +5,6 @@ build/
 simv
 simv_*
 *.vcd
-*.gtkw
 output
 csrc/
 *.daidir/

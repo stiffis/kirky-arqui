@@ -16,8 +16,6 @@ module testbench;
 
   // initialize test
   initial begin
-    $dumpfile("wave.vcd");
-    $dumpvars(0, testbench);
     reset = 1;
     #22;
     reset = 0;

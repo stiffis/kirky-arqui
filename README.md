@@ -8,8 +8,9 @@ Proyecto 2 de Arquitectura de Computadoras.
 
 ```
 rtl/         Modulos de diseno (Verilog sintetizable)
-tests/       Testbenches (.v) y programas de prueba en tests/programs/ (.mem)
-toolchain/   asm2mem.sh: ensambla .s -> .mem (RV32I y RVC)
+tests/       Testbenches (.v), programs/ (.mem) y dump.v (volcado de waveforms)
+toolchain/   asm2mem.sh (ensambla .s -> .mem) y gen_wave.sh (genera .vcd)
+waves/       Un subdir por test: <test>/<test>.gtkw (versionado) + .vcd (ignorado)
 docs/        Informe LaTeX e imagenes
 Makefile     Atajos de simulacion
 run_tests.sh        Regresion completa (PASS/FAIL por testbench)
@@ -26,9 +27,21 @@ verdad de los programas esta en `tests/programs/*.mem`.
 make test            # regresion completa
 make hazard          # demo de la unidad de riesgos
 make demo-hazard     # mismo programa sin NOPs: falla sin hazard unit
-make wave PROG=isa   # genera wave.vcd para gtkwave
+make wave PROG=isa   # genera waves/isa/isa.vcd
 make clean           # borra artefactos
 ```
+
+## Waveforms
+
+```sh
+make wave PROG=forward          # -> waves/forward/forward.vcd
+gtkwave waves/forward/forward.vcd
+```
+
+Cada test tiene su carpeta en `waves/<test>/`. El `.vcd` se genera con
+`gen_wave.sh` (via el modulo reutilizable `tests/dump.v`) y esta ignorado por
+git. El `.gtkw` (la vista de senales de GTKWave) se guarda a mano desde GTKWave
+y si se versiona, junto a su `.vcd`.
 
 ## Generar programas
 

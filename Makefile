@@ -18,13 +18,7 @@ demo-hazard:
 	  vvp build/sim_nonop 2>/dev/null | grep -v -i warning'
 
 wave:
-	@mkdir -p build
-	@bash -c 'cp -f riscvtest.mem build/riscvtest.mem.bak 2>/dev/null; \
-	  trap "cp -f build/riscvtest.mem.bak riscvtest.mem 2>/dev/null" EXIT; \
-	  cp tests/programs/riscvtest_$(PROG).mem riscvtest.mem; \
-	  iverilog -g2012 -o build/sim_wave $(RTL) tests/testbench_$(PROG).v && \
-	  vvp build/sim_wave 2>/dev/null | grep -v -i warning' && \
-	  echo "wave.vcd generado -> gtkwave wave.vcd"
+	@./toolchain/gen_wave.sh $(PROG)
 
 clean:
 	rm -rf build wave.vcd *.vcd
