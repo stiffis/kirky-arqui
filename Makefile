@@ -1,25 +1,30 @@
-# Atajos para el pipeline RISC-V (week13).
-#   make test          -> corre la regresion (PASS/FAIL de todos los testbenches)
-#   make demo-hazard   -> corre el mismo programa SIN NOPs y muestra los
-#                         resultados incorrectos por hazards (sin hazard unit)
-#   make clean         -> borra artefactos de compilacion
+RTL = rtl/*.v
+PROG ?= isa
 
-RTL = adder.v alu.v aludec.v controller.v datapath.v dmem.v extend.v \
-      flopr.v imem.v maindec.v mux2.v mux3.v regfile.v riscvpipe.v top.v
-
-.PHONY: test demo-hazard clean
+.PHONY: test hazard demo-hazard wave clean
 
 test:
 	@./run_tests.sh
 
+hazard:
+	@./run_hazard_demo.sh
+
 demo-hazard:
 	@mkdir -p build
-	@echo "Mismo programa SIN NOPs y mismo testbench: el primer resultado dependiente ya sale mal."
-	@bash -c 'cp -f riscvtest.txt build/riscvtest.txt.bak 2>/dev/null; \
-	  trap "cp -f build/riscvtest.txt.bak riscvtest.txt 2>/dev/null" EXIT; \
-	  cp tests/programs/riscvtest_deps_nonop.txt riscvtest.txt; \
+	@bash -c 'cp -f riscvtest.mem build/riscvtest.mem.bak 2>/dev/null; \
+	  trap "cp -f build/riscvtest.mem.bak riscvtest.mem 2>/dev/null" EXIT; \
+	  cp tests/programs/riscvtest_deps_nonop.mem riscvtest.mem; \
 	  iverilog -g2012 -o build/sim_nonop $(RTL) tests/testbench_deps.v && \
 	  vvp build/sim_nonop 2>/dev/null | grep -v -i warning'
 
+wave:
+	@mkdir -p build
+	@bash -c 'cp -f riscvtest.mem build/riscvtest.mem.bak 2>/dev/null; \
+	  trap "cp -f build/riscvtest.mem.bak riscvtest.mem 2>/dev/null" EXIT; \
+	  cp tests/programs/riscvtest_$(PROG).mem riscvtest.mem; \
+	  iverilog -g2012 -o build/sim_wave $(RTL) tests/testbench_$(PROG).v && \
+	  vvp build/sim_wave 2>/dev/null | grep -v -i warning' && \
+	  echo "wave.vcd generado -> gtkwave wave.vcd"
+
 clean:
-	rm -rf build
+	rm -rf build wave.vcd *.vcd

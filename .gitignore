@@ -5,5 +5,21 @@ build/
 simv
 simv_*
 *.vcd
+*.gtkw
+output
 csrc/
 *.daidir/
+
+# Imagen de memoria transitoria que cargan los runners en imem
+# (la fuente de verdad son tests/programs/*.mem)
+riscvtest.mem
+
+# Artefactos de LaTeX (informe)
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.pdf
+docs/*.fls
+docs/*.fdb_latexmk
+docs/indent.log

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Runner de regresion del pipeline RISC-V (week13).
-# Compila y corre los 7 testbenches con iverilog y reporta PASS/FAIL por cada uno.
+# Compila y corre todos los testbenches con iverilog y reporta PASS/FAIL por cada uno.
 # Uso:  ./run_tests.sh
 # Exit: 0 si todos pasan, 1 si alguno falla.
 
@@ -11,32 +11,34 @@ cd "$(dirname "$0")"
 BUILD=build
 mkdir -p "$BUILD"
 
-# Modulos del nucleo de diseno (en la raiz; todo menos los testbenches).
-CORE=(adder.v alu.v aludec.v controller.v datapath.v dmem.v extend.v \
-      flopr.v imem.v maindec.v mux2.v mux3.v regfile.v riscvpipe.v top.v)
+CORE=(rtl/*.v)
 
 # Pruebas (programas en tests/programs/, testbenches en tests/).
-#   nombre | programa (.txt) | testbench (.v)
+#   nombre | programa (.mem) | testbench (.v)
 PROGDIR=tests/programs
 TBDIR=tests
 TESTS=(
-  "base   | riscvtest_base.txt    | testbench_base.v"
-  "ctrl   | riscvtest_ctrl.txt    | testbench_ctrl.v"
-  "xor    | riscvtest_xor.txt     | testbench_xor.v"
-  "lui    | riscvtest_lui.txt     | testbench_lui.v"
-  "shift  | riscvtest_shift.txt   | testbench_shift.v"
-  "branch | riscvtest_branch3.txt | testbench_branch3.v"
-  "jalr   | riscvtest_jalr.txt    | testbench_jalr.v"
-  "deps   | riscvtest_deps.txt    | testbench_deps.v"
+  "base   | riscvtest_base.mem    | testbench_base.v"
+  "ctrl   | riscvtest_ctrl.mem    | testbench_ctrl.v"
+  "xor    | riscvtest_xor.mem     | testbench_xor.v"
+  "lui    | riscvtest_lui.mem     | testbench_lui.v"
+  "shift  | riscvtest_shift.mem   | testbench_shift.v"
+  "branch | riscvtest_branch3.mem | testbench_branch3.v"
+  "jalr   | riscvtest_jalr.mem    | testbench_jalr.v"
+  "deps   | riscvtest_deps.mem    | testbench_deps.v"
+  "isa    | riscvtest_isa.mem     | testbench_isa.v"
+  "forward| riscvtest_forward.mem | testbench_forward.v"
+  "stall  | riscvtest_stall.mem   | testbench_stall.v"
+  "flush  | riscvtest_flush.mem   | testbench_flush.v"
 )
 
-# imem.v lee "riscvtest.txt" del directorio actual: lo respaldamos y restauramos.
+# imem.v lee "riscvtest.mem" del directorio actual: lo respaldamos y restauramos.
 BACKUP=""
-if [ -f riscvtest.txt ]; then
-  BACKUP="$BUILD/riscvtest.txt.bak"
-  cp riscvtest.txt "$BACKUP"
+if [ -f riscvtest.mem ]; then
+  BACKUP="$BUILD/riscvtest.mem.bak"
+  cp riscvtest.mem "$BACKUP"
 fi
-restore() { [ -n "$BACKUP" ] && cp "$BACKUP" riscvtest.txt; }
+restore() { [ -n "$BACKUP" ] && cp "$BACKUP" riscvtest.mem; }
 trap restore EXIT
 
 pass=0; fail=0
@@ -48,7 +50,7 @@ for row in "${TESTS[@]}"; do
   IFS='|' read -r name prog tb <<< "$row"
   name="${name// /}"; prog="${prog// /}"; tb="${tb// /}"
 
-  cp "$PROGDIR/$prog" riscvtest.txt
+  cp "$PROGDIR/$prog" riscvtest.mem
   sim="$BUILD/sim_$name"
   if ! iverilog -g2012 -o "$sim" "${CORE[@]}" "$TBDIR/$tb" 2> "$BUILD/$name.compile.log"; then
     printf '  %-7s %sFAIL%s  %s(error de compilacion, ver %s)%s\n' \

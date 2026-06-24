@@ -1,23 +1,27 @@
 module controller(input  clk, reset,
+                  input  FlushE,
                   input  [6:0] opD,
                   input  [2:0] funct3D,
                   input  funct7b5D,
                   input  ZeroE,
                   input  CondBitE,
                   output [1:0] ResultSrcW,
+                  output [1:0] ResultSrcM,
+                  output [1:0] ResultSrcE,
                   output MemWriteM,
                   output PCSrcE, ALUSrcE,
                   output JalrE,
+                  output RegWriteM,
                   output RegWriteW,
                   output [1:0] ImmSrcD,
                   output [3:0] ALUControlE);
   
-  wire [1:0] ResultSrcD, ResultSrcE, ResultSrcM;
+  wire [1:0] ResultSrcD;
   wire [1:0] ALUOpD;
   wire       BranchD, BranchE;
   wire [2:0] funct3E;
   wire       ALUSrcD;
-  wire       RegWriteD, RegWriteE, RegWriteM;
+  wire       RegWriteD, RegWriteE;
   wire       JumpD, JumpE;
   wire       JalrD;
   wire       MemWriteD, MemWriteE;
@@ -50,16 +54,20 @@ module controller(input  clk, reset,
   assign controlsE_in = {RegWriteD, ResultSrcD, MemWriteD, JumpD, JalrD,
                          BranchD, ALUControlD, ALUSrcD};
 
-  flopr #(12) regE(
+  flopenrc #(12) regE(
     .clk(clk),
     .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
     .d(controlsE_in),
     .q(controlsE)
   );
 
-  flopr #(3) funct3Ereg(
+  flopenrc #(3) funct3Ereg(
     .clk(clk),
     .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
     .d(funct3D),
     .q(funct3E)
   );

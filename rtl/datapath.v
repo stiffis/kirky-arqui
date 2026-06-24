@@ -1,18 +1,24 @@
 module datapath(input  clk, reset,
-                input  [1:0] ResultSrcW,
-                input  PCSrcE, ALUSrcE, JalrE,
-                input  RegWriteW,
-                input  [1:0] ImmSrcD,
-                input  [3:0] ALUControlE,
-                output ZeroE,
-                output CondBitE,
-                output [6:0] opD,
-                output [2:0] funct3D,
-                output funct7b5D,
-                output [31:0] PCF,
-                input  [31:0] InstrF,
-                output [31:0] ALUResultM, WriteDataM,
-                input  [31:0] ReadDataM);
+                 input  [1:0] ResultSrcW,
+                 input  [1:0] ResultSrcM,
+                 input  PCSrcE, ALUSrcE, JalrE,
+                 input  RegWriteW,
+                 input  StallF, StallD, FlushD, FlushE,
+                 input  [1:0] ForwardAE, ForwardBE,
+                 input  [1:0] ImmSrcD,
+                 input  [3:0] ALUControlE,
+                 output ZeroE,
+                 output CondBitE,
+                 output [6:0] opD,
+                 output [2:0] funct3D,
+                 output funct7b5D,
+                 output [4:0] Rs1D, Rs2D,
+                 output [4:0] Rs1E, Rs2E,
+                 output [4:0] RdE, RdM, RdW,
+                 output [31:0] PCF,
+                 input  [31:0] InstrF,
+                 output [31:0] ALUResultM, WriteDataM,
+                 input  [31:0] ReadDataM);
   
   localparam WIDTH = 32;
 
@@ -20,15 +26,18 @@ module datapath(input  clk, reset,
   wire [31:0] InstrD, PCD, PCPlus4D;
   wire [31:0] RD1D, RD2D, ImmExtD;
   wire [31:0] RD1E, RD2E, PCE, ImmExtE, PCPlus4E;
-  wire [31:0] SrcBE, ALUResultE, PCTargetE, PCBranchTargetE, PCJalrTargetE;
+  wire [31:0] SrcAE, WriteDataE, SrcBE, ALUResultE;
+  wire [31:0] PCTargetE, PCBranchTargetE, PCJalrTargetE;
+  wire [31:0] ResultM;
   wire [31:0] ALUResultW, ReadDataW, PCPlus4M, PCPlus4W;
   wire [31:0] ResultW;
-  wire [4:0]  RdD, RdE, RdM, RdW;
+  wire [4:0]  RdD;
 
   // Fetch stage
-  flopr #(WIDTH) pcreg(
+  flopenr #(WIDTH) pcreg(
     .clk(clk),
     .reset(reset),
+    .en(~StallF),
     .d(PCNextF),
     .q(PCF)
   );
@@ -47,23 +56,29 @@ module datapath(input  clk, reset,
   );
 
   // IF/ID pipeline register
-  flopr #(WIDTH) ifid_instrreg(
+  flopenrc #(WIDTH) ifid_instrreg(
     .clk(clk),
     .reset(reset),
+    .en(~StallD),
+    .clear(FlushD),
     .d(InstrF),
     .q(InstrD)
   );
 
-  flopr #(WIDTH) ifid_pcreg(
+  flopenrc #(WIDTH) ifid_pcreg(
     .clk(clk),
     .reset(reset),
+    .en(~StallD),
+    .clear(FlushD),
     .d(PCF),
     .q(PCD)
   );
 
-  flopr #(WIDTH) ifid_pcplus4reg(
+  flopenrc #(WIDTH) ifid_pcplus4reg(
     .clk(clk),
     .reset(reset),
+    .en(~StallD),
+    .clear(FlushD),
     .d(PCPlus4F),
     .q(PCPlus4D)
   );
@@ -72,13 +87,15 @@ module datapath(input  clk, reset,
   assign opD = InstrD[6:0];
   assign funct3D = InstrD[14:12];
   assign funct7b5D = InstrD[30];
+  assign Rs1D = InstrD[19:15];
+  assign Rs2D = InstrD[24:20];
   assign RdD = InstrD[11:7];
 
   regfile rf(
     .clk(clk),
     .we3(RegWriteW),
-    .a1(InstrD[19:15]),
-    .a2(InstrD[24:20]),
+    .a1(Rs1D),
+    .a2(Rs2D),
     .a3(RdW),
     .wd3(ResultW),
     .rd1(RD1D),
@@ -93,58 +110,104 @@ module datapath(input  clk, reset,
   );
 
   // ID/EX pipeline register
-  flopr #(WIDTH) idex_rd1reg(
+  flopenrc #(WIDTH) idex_rd1reg(
     .clk(clk),
     .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
     .d(RD1D),
     .q(RD1E)
   );
 
-  flopr #(WIDTH) idex_rd2reg(
+  flopenrc #(WIDTH) idex_rd2reg(
     .clk(clk),
     .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
     .d(RD2D),
     .q(RD2E)
   );
 
-  flopr #(WIDTH) idex_pcreg(
+  flopenrc #(WIDTH) idex_pcreg(
     .clk(clk),
     .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
     .d(PCD),
     .q(PCE)
   );
 
-  flopr #(WIDTH) idex_immreg(
+  flopenrc #(WIDTH) idex_immreg(
     .clk(clk),
     .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
     .d(ImmExtD),
     .q(ImmExtE)
   );
 
-  flopr #(5) idex_rdreg(
+  flopenrc #(5) idex_rs1reg(
     .clk(clk),
     .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
+    .d(Rs1D),
+    .q(Rs1E)
+  );
+
+  flopenrc #(5) idex_rs2reg(
+    .clk(clk),
+    .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
+    .d(Rs2D),
+    .q(Rs2E)
+  );
+
+  flopenrc #(5) idex_rdreg(
+    .clk(clk),
+    .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
     .d(RdD),
     .q(RdE)
   );
 
-  flopr #(WIDTH) idex_pcplus4reg(
+  flopenrc #(WIDTH) idex_pcplus4reg(
     .clk(clk),
     .reset(reset),
+    .en(1'b1),
+    .clear(FlushE),
     .d(PCPlus4D),
     .q(PCPlus4E)
   );
 
   // Execute stage
-  mux2 #(WIDTH) srcbmux(
+  mux3 #(WIDTH) forwardamux(
+    .d0(RD1E),
+    .d1(ResultW),
+    .d2(ResultM),
+    .s(ForwardAE),
+    .y(SrcAE)
+  );
+
+  mux3 #(WIDTH) forwardbmux(
     .d0(RD2E),
+    .d1(ResultW),
+    .d2(ResultM),
+    .s(ForwardBE),
+    .y(WriteDataE)
+  );
+
+  mux2 #(WIDTH) srcbmux(
+    .d0(WriteDataE),
     .d1(ImmExtE),
     .s(ALUSrcE),
     .y(SrcBE)
   );
 
   alu alu(
-    .a(RD1E),
+    .a(SrcAE),
     .b(SrcBE),
     .alucontrol(ALUControlE),
     .result(ALUResultE),
@@ -172,7 +235,7 @@ module datapath(input  clk, reset,
   flopr #(WIDTH) exmem_writedatareg(
     .clk(clk),
     .reset(reset),
-    .d(RD2E),
+    .d(WriteDataE),
     .q(WriteDataM)
   );
 
@@ -188,6 +251,14 @@ module datapath(input  clk, reset,
     .reset(reset),
     .d(PCPlus4E),
     .q(PCPlus4M)
+  );
+
+  mux3 #(WIDTH) resultmuxm(
+    .d0(ALUResultM),
+    .d1(ReadDataM),
+    .d2(PCPlus4M),
+    .s(ResultSrcM),
+    .y(ResultM)
   );
 
   // MEM/WB pipeline register
