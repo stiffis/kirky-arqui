@@ -34,6 +34,7 @@ TESTS=(
   "cir    | riscvtest_cir.mem     | testbench_cir.v"
   "ca     | riscvtest_ca.mem      | testbench_ca.v"
   "cb     | riscvtest_cb.mem      | testbench_cb.v"
+  "mul10  | riscvtest_mul10.mem   | testbench_mul10.v"
 )
 
 # imem.v lee "riscvtest.mem" del directorio actual: lo respaldamos y restauramos.
