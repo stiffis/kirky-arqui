@@ -25,7 +25,7 @@ Distinción 16/32 bits: `instr[1:0] != 2'b11` indica instrucción comprimida.
 | 0 — Cimientos | imem ventana deslizante + PCPlusInc (+2/+4) + decompressor passthrough | hecha |
 | E2.1 | c.addi (CI) — prueba de concepto | hecha |
 | E2.2 | c.lui, c.slli (CI), c.add (CR) | hecha |
-| E2.3 | c.sub, c.and, c.or, c.xor (CA) | pendiente |
+| E2.3 | c.sub, c.and, c.or, c.xor (CA) | hecha |
 | E2.4 | c.srli, c.srai, c.andi (CB) | pendiente |
 | E2.5 | programa mixto 16/32 + waveforms + informe | pendiente |
 
@@ -213,6 +213,69 @@ otras comprimidas aun no soportadas.
 
 `make test` -> 14 PASS (caddi + cir: `Mem[0]=17`, `Mem[4]=4096`).
 `make wave PROG=cir` -> `waves/cir/cir.vcd`.
+
+### Estado
+
+Completada (2026-06-24).
+
+---
+
+## E2.3 — c.sub, c.and, c.or, c.xor
+
+### Meta de la fase
+
+Implementar la familia CA (registro-registro). Lo nuevo respecto a E2.2 son dos
+cosas: (1) los **registros restringidos** x8--x15 (3 bits en vez de 5), y (2) la
+primera **desambiguacion anidada** del descompresor.
+
+### Como se implemento y por que
+
+Registros restringidos: se agregaron `rdp = {2'b01, c[9:7]}` y `rs2p = {2'b01,
+c[4:2]}`. Anteponer `01` a los 3 bits da el numero real (campo 000->x8 ...
+111->x15), que es justo el mapeo del ISA.
+
+Desambiguacion anidada: la familia CA comparte `{op,funct3} = {01,100}` con la
+familia CB de E2.4 (`c.srli/srai/andi`). Ambas caen en la misma entrada del case.
+Se distinguen por `c[11:10]`:
+- `c[11:10] == 11` -> registro-registro (CA), y dentro, `c[6:5]` elige la operacion.
+- otro valor -> CB (queda passthrough hasta E2.4).
+
+```
+5'b01_100:
+  if (c[11:10] == 2'b11)
+    case (c[6:5])
+      2'b00: sub  -> {7'b0100000, rs2p, rdp, 3'b000, rdp, 7'b0110011}
+      2'b01: xor  -> {7'b0000000, rs2p, rdp, 3'b100, rdp, 7'b0110011}
+      2'b10: or   -> {7'b0000000, rs2p, rdp, 3'b110, rdp, 7'b0110011}
+      2'b11: and  -> {7'b0000000, rs2p, rdp, 3'b111, rdp, 7'b0110011}
+    endcase
+  else instr = instrraw;
+```
+
+Cada una expande al R-type correspondiente: `sub` usa funct7=0100000; el resto
+funct7=0000000; el funct3 distingue (000 sub, 100 xor, 110 or, 111 and).
+
+### Programa de prueba y por que esos valores
+
+`tests/programs/riscvtest_ca.s`. Se cargan operandos `x8..x12` (todos en x8--x15
+para que las comprimidas sean validas) con valor 12, y `x9=10`, y se aplican las
+cuatro operaciones contra `x9`:
+
+```
+c.sub x8, x9   ; 12 - 10 = 2    -> Mem[0]=2
+c.xor x10, x9  ; 12 ^ 10 = 6    -> Mem[4]=6
+c.or  x11, x9  ; 12 | 10 = 14   -> Mem[8]=14
+c.and x12, x9  ; 12 & 10 = 8    -> Mem[12]=8
+```
+
+Los valores 12 (1100) y 10 (1010) se eligieron para que cada operacion logica de
+un resultado distinto y reconocible. Se verifico con `objdump` que el ensamblador
+emitiera `c.sub/c.xor/c.or/c.and` con registros restringidos (s0,s1,a0,a1,a2).
+
+### Validación
+
+`make test` -> 15 PASS (Mem[0]=2, Mem[4]=6, Mem[8]=14, Mem[12]=8).
+`make wave PROG=ca` -> `waves/ca/ca.vcd`.
 
 ### Estado
 
