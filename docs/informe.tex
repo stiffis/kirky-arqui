@@ -29,6 +29,8 @@
 
 \renewcommand{\tablename}{Cuadro}
 \renewcommand{\figurename}{Figura}
+\renewcommand{\partname}{Parte}
+\renewcommand{\thepart}{\arabic{part}}
 
 \definecolor{codegray}{gray}{0.5}
 \definecolor{codeblue}{rgb}{0.0,0.0,0.6}
@@ -82,6 +84,8 @@
 {\large Perú - 2026\par}
 \vspace{1cm}
 \clearpage}
+
+\part{Procesador segmentado y unidad de riesgos}
 
 \section{Resumen teórico del pipeline: datapath y control}
 
@@ -1042,5 +1046,7 @@ hazard unit: \textbf{adelantar} cuando el dato ya existe en una etapa posterior,
 \textbf{detener} cuando el dato aún no puede adelantarse y \textbf{descartar} cuando el
 camino de ejecución correcto cambia por un salto. Así, los programas de prueba que antes
 fallaban sin \texttt{NOP} manuales pasan ahora correctamente sobre el pipeline final.
+
+\part{Extensión C: instrucciones comprimidas (RVC)}
 
 \end{document}
