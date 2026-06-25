@@ -23,7 +23,7 @@ Distinción 16/32 bits: `instr[1:0] != 2'b11` indica instrucción comprimida.
 | Fase | Contenido | Estado |
 |------|-----------|--------|
 | 0 — Cimientos | imem ventana deslizante + PCPlusInc (+2/+4) + decompressor passthrough | hecha |
-| E2.1 | c.addi (CI) — prueba de concepto | pendiente |
+| E2.1 | c.addi (CI) — prueba de concepto | hecha |
 | E2.2 | c.lui, c.slli (CI), c.add (CR) | pendiente |
 | E2.3 | c.sub, c.and, c.or, c.xor (CA) | pendiente |
 | E2.4 | c.srli, c.srai, c.andi (CB) | pendiente |
@@ -92,3 +92,52 @@ Archivos tocados:
 Para RV32I puro `PC[1]=0` y `compressed=0` siempre, asi que el comportamiento es
 identico y la regresion sigue verde. El camino desalineado (`PC[1]=1`) queda listo
 pero aun no se ejercita hasta E2.1, cuando haya comprimidas reales.
+
+---
+
+## E2.1 — c.addi
+
+### Implementación
+
+`c.addi rd, imm` (formato CI, op=01, funct3=000) expande a `addi rd, rd, imm` con
+inmediato de 6 bits con signo `{c[12], c[6:2]}`. En `decompressor.v`:
+
+```
+case ({c[1:0], c[15:13]})
+  5'b01000: instr = {{7{c[12]}}, c[6:2], c[11:7], 3'b000, c[11:7], 7'b0010011};
+  default:  instr = instrraw;
+endcase
+```
+
+Campos del addi de 32 bits: imm[11:0] = sign-extend de 6 bits, rs1 = rd = `c[11:7]`,
+funct3 = 000, rd = `c[11:7]`, opcode = 0010011.
+
+### Programa de prueba
+
+`tests/programs/riscvtest_caddi.s` (mixto 16/32, control con `.option rvc/norvc`):
+
+```
+addi x8, x0, 5     ; 32 bits  -> x8 = 5
+c.addi x8, 3       ; 16 bits  -> x8 = 8
+sw   x8, 0(x0)     ; 32 bits  -> Mem[0] = 8
+```
+
+`.mem` generado:
+```
+00500413   ; addi x8,x0,5
+2023040d   ; c.addi x8,3 (low16) + sw (low16)
+00000080   ; sw (high16)
+```
+
+La `sw` empieza en el byte 6 (`PC[1]=1`): queda partida entre `RAM[1]` y `RAM[2]`,
+y la ventana deslizante la reensambla (`0x00802023`). Es decir, este test ademas
+estrena el camino desalineado de la `imem`.
+
+### Validación
+
+`make test` -> 13 PASS (12 RV32I + caddi: `Mem[0] = 8`).
+`make wave PROG=caddi` -> `waves/caddi/caddi.vcd`.
+
+### Estado
+
+Completada (2026-06-24).

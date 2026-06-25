@@ -30,6 +30,7 @@ TESTS=(
   "forward| riscvtest_forward.mem | testbench_forward.v"
   "stall  | riscvtest_stall.mem   | testbench_stall.v"
   "flush  | riscvtest_flush.mem   | testbench_flush.v"
+  "caddi  | riscvtest_caddi.mem   | testbench_caddi.v"
 )
 
 # imem.v lee "riscvtest.mem" del directorio actual: lo respaldamos y restauramos.
