@@ -22,7 +22,7 @@ Distinción 16/32 bits: `instr[1:0] != 2'b11` indica instrucción comprimida.
 
 | Fase | Contenido | Estado |
 |------|-----------|--------|
-| 0 — Cimientos | imem ventana deslizante + PCPlusInc (+2/+4) + decompressor passthrough | pendiente |
+| 0 — Cimientos | imem ventana deslizante + PCPlusInc (+2/+4) + decompressor passthrough | hecha |
 | E2.1 | c.addi (CI) — prueba de concepto | pendiente |
 | E2.2 | c.lui, c.slli (CI), c.add (CR) | pendiente |
 | E2.3 | c.sub, c.and, c.or, c.xor (CA) | pendiente |
@@ -77,7 +77,18 @@ entrega lo mismo -> comportamiento idéntico. La regresión debe seguir en 12 PA
 ### Validación
 
 `make test` -> 12 PASS, 0 FAIL.
+`make hazard` -> 3 PASS, 0 FAIL.
 
 ### Estado
 
-Pendiente.
+Completada (2026-06-24).
+
+Archivos tocados:
+- `rtl/decompressor.v` (nuevo): passthrough; calcula `compressed = (instrraw[1:0] != 2'b11)`.
+- `rtl/imem.v`: ventana deslizante `rd = a[1] ? {w1[15:0], w0[31:16]} : w0`.
+- `rtl/datapath.v`: instancia `decompressor` sobre `InstrF`; el IF/ID guarda
+  `InstrDecF`; `PCPlusIncF = PCF + (compressedF ? 2 : 4)`; rename `PCPlus4* -> PCPlusInc*`.
+
+Para RV32I puro `PC[1]=0` y `compressed=0` siempre, asi que el comportamiento es
+identico y la regresion sigue verde. El camino desalineado (`PC[1]=1`) queda listo
+pero aun no se ejercita hasta E2.1, cuando haya comprimidas reales.

@@ -22,14 +22,16 @@ module datapath(input  clk, reset,
   
   localparam WIDTH = 32;
 
-  wire [31:0] PCNextF, PCPlus4F;
-  wire [31:0] InstrD, PCD, PCPlus4D;
+  wire [31:0] PCNextF, PCPlusIncF;
+  wire [31:0] InstrDecF;
+  wire        compressedF;
+  wire [31:0] InstrD, PCD, PCPlusIncD;
   wire [31:0] RD1D, RD2D, ImmExtD;
-  wire [31:0] RD1E, RD2E, PCE, ImmExtE, PCPlus4E;
+  wire [31:0] RD1E, RD2E, PCE, ImmExtE, PCPlusIncE;
   wire [31:0] SrcAE, WriteDataE, SrcBE, ALUResultE;
   wire [31:0] PCTargetE, PCBranchTargetE, PCJalrTargetE;
   wire [31:0] ResultM;
-  wire [31:0] ALUResultW, ReadDataW, PCPlus4M, PCPlus4W;
+  wire [31:0] ALUResultW, ReadDataW, PCPlusIncM, PCPlusIncW;
   wire [31:0] ResultW;
   wire [4:0]  RdD;
 
@@ -42,14 +44,16 @@ module datapath(input  clk, reset,
     .q(PCF)
   );
 
-  adder pcadd4(
-    .a(PCF),
-    .b(32'd4),
-    .y(PCPlus4F)
+  decompressor dec(
+    .instrraw(InstrF),
+    .instr(InstrDecF),
+    .compressed(compressedF)
   );
 
+  assign PCPlusIncF = PCF + (compressedF ? 32'd2 : 32'd4);
+
   mux2 #(WIDTH) pcmux(
-    .d0(PCPlus4F),
+    .d0(PCPlusIncF),
     .d1(PCTargetE),
     .s(PCSrcE),
     .y(PCNextF)
@@ -61,7 +65,7 @@ module datapath(input  clk, reset,
     .reset(reset),
     .en(~StallD),
     .clear(FlushD),
-    .d(InstrF),
+    .d(InstrDecF),
     .q(InstrD)
   );
 
@@ -74,13 +78,13 @@ module datapath(input  clk, reset,
     .q(PCD)
   );
 
-  flopenrc #(WIDTH) ifid_pcplus4reg(
+  flopenrc #(WIDTH) ifid_pcplusincreg(
     .clk(clk),
     .reset(reset),
     .en(~StallD),
     .clear(FlushD),
-    .d(PCPlus4F),
-    .q(PCPlus4D)
+    .d(PCPlusIncF),
+    .q(PCPlusIncD)
   );
 
   // Decode stage
@@ -173,13 +177,13 @@ module datapath(input  clk, reset,
     .q(RdE)
   );
 
-  flopenrc #(WIDTH) idex_pcplus4reg(
+  flopenrc #(WIDTH) idex_pcplusincreg(
     .clk(clk),
     .reset(reset),
     .en(1'b1),
     .clear(FlushE),
-    .d(PCPlus4D),
-    .q(PCPlus4E)
+    .d(PCPlusIncD),
+    .q(PCPlusIncE)
   );
 
   // Execute stage
@@ -246,17 +250,17 @@ module datapath(input  clk, reset,
     .q(RdM)
   );
 
-  flopr #(WIDTH) exmem_pcplus4reg(
+  flopr #(WIDTH) exmem_pcplusincreg(
     .clk(clk),
     .reset(reset),
-    .d(PCPlus4E),
-    .q(PCPlus4M)
+    .d(PCPlusIncE),
+    .q(PCPlusIncM)
   );
 
   mux3 #(WIDTH) resultmuxm(
     .d0(ALUResultM),
     .d1(ReadDataM),
-    .d2(PCPlus4M),
+    .d2(PCPlusIncM),
     .s(ResultSrcM),
     .y(ResultM)
   );
@@ -283,18 +287,18 @@ module datapath(input  clk, reset,
     .q(RdW)
   );
 
-  flopr #(WIDTH) memwb_pcplus4reg(
+  flopr #(WIDTH) memwb_pcplusincreg(
     .clk(clk),
     .reset(reset),
-    .d(PCPlus4M),
-    .q(PCPlus4W)
+    .d(PCPlusIncM),
+    .q(PCPlusIncW)
   );
 
   // Writeback stage
   mux3 #(WIDTH) resultmux(
     .d0(ALUResultW),
     .d1(ReadDataW),
-    .d2(PCPlus4W),
+    .d2(PCPlusIncW),
     .s(ResultSrcW),
     .y(ResultW)
   );
