@@ -23,6 +23,7 @@
 \usepackage{xcolor}
 \usepackage{float}
 \usepackage{listings}
+\usepackage{enumitem}
 \usepackage[plainpages=false,pdfpagelabels]{hyperref}
 
 \hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
@@ -1048,5 +1049,252 @@ camino de ejecución correcto cambia por un salto. Así, los programas de prueba
 fallaban sin \texttt{NOP} manuales pasan ahora correctamente sobre el pipeline final.
 
 \part{Extensión C: instrucciones comprimidas (RVC)}
+
+\section{Introducción a la extensión C}
+
+La extensión \textbf{C} (\textit{compressed}, \textbf{RVC}) de RISC-V define
+instrucciones de \textbf{16 bits} que coexisten con las de 32 bits del ISA base,
+reduciendo el tamaño del código tipicamente entre un 25\,\% y un 30\,\% sin perder
+expresividad. No es un modo aparte que deba activarse: se pueden \textbf{mezclar}
+libremente instrucciones de 16 y 32 bits en el mismo flujo de ejecucion.
+
+La propiedad que hace manejable la implementacion es que \textbf{cada instruccion
+comprimida tiene exactamente un equivalente de 32 bits}. Por eso la estrategia
+elegida es \textbf{descomprimir en la etapa de Fetch}: expandir los 16 bits a su
+forma RV32I \emph{antes} del registro de pipeline IF/ID. Asi, las etapas Decode,
+Execute, Memory y Writeback, junto con \texttt{controller}, \texttt{aludec},
+\texttt{extend} y la unidad de riesgos, \textbf{no se modifican}: el pipeline
+interno solo ve instrucciones RV32I normales.
+
+La distincion entre 16 y 32 bits se realiza con los dos bits menos significativos
+de la instruccion leida: si \texttt{instr[1:0] != 2'b11}, la instruccion es
+comprimida y debe expandirse; en caso contrario es una instruccion estandar de 32
+bits.
+
+Esta primera parte de RVC implementa 11 instrucciones aritmeticas y de
+registro-inmediato:
+\begin{center}
+\texttt{c.addi \ c.lui \ c.slli \ c.add \ c.sub \ c.xor \ c.or \ c.and \ c.srli \ c.srai \ c.andi}
+\end{center}
+
+\section{Cambios en el datapath para soportar RVC}
+
+Toda la logica nueva se concentra en la etapa de Fetch, en tres cambios. Los
+modulos \texttt{controller}, \texttt{aludec}, \texttt{extend},
+\texttt{hazardunit}, \texttt{regfile}, \texttt{alu} y \texttt{dmem} no se
+modificaron.
+
+\subsection{Memoria de instrucciones con ventana deslizante}
+
+Con instrucciones de 16 bits, el PC puede caer en una direccion par que no es
+multiplo de 4 (\texttt{PC[1]=1}), y una instruccion de 32 bits puede quedar
+\textbf{partida entre dos palabras} de memoria. La \texttt{imem} deja de devolver
+``la palabra alineada'' y pasa a devolver ``los 32 bits que empiezan en el PC'',
+ensamblando dos palabras consecutivas cuando hace falta:
+
+\begin{lstlisting}
+  wire [31:0] w0, w1;
+  assign w0 = RAM[a[31:2]];
+  assign w1 = RAM[a[31:2] + 1];
+  assign rd = a[1] ? {w1[15:0], w0[31:16]} : w0;
+\end{lstlisting}
+
+Para programas RV32I puros, \texttt{PC[1]=0} siempre, de modo que
+\texttt{rd = RAM[k]} y el comportamiento es identico al original.
+
+\subsection{Incremento variable del PC (\texttt{+2/+4})}
+
+El incremento fijo \texttt{PC+4} se reemplaza por uno que depende del tamano de la
+instruccion leida (2 bytes si es comprimida, 4 si es normal):
+
+\begin{lstlisting}
+  assign PCPlusIncF = PCF + (compressedF ? 32'd2 : 32'd4);
+\end{lstlisting}
+
+La senal \texttt{compressedF} la produce el descompresor en el mismo ciclo de
+Fetch. Se renombro \texttt{PCPlus4} a \texttt{PCPlusInc} en toda la tuberia, ya
+que ese valor es ademas la direccion de retorno de \texttt{jal}/\texttt{jalr}.
+
+\subsection{Modulo descompresor}
+
+Es un modulo combinacional nuevo (\texttt{decompressor.v}), cableado sobre la
+instruccion cruda en Fetch. Calcula la senal \texttt{compressed} (que maneja el
+\texttt{+2/+4}) y produce la instruccion de 32 bits ya expandida, que es la que se
+guarda en el registro IF/ID:
+
+\begin{lstlisting}
+  decompressor dec(
+    .instrraw(InstrF),
+    .instr(InstrDecF),
+    .compressed(compressedF)
+  );
+\end{lstlisting}
+
+El registro IF/ID guarda \texttt{InstrDecF} (la instruccion expandida), no la
+cruda. De esa forma, todo lo que esta aguas abajo recibe una instruccion RV32I
+normal.
+
+\section{Implementacion de las instrucciones comprimidas}
+
+Las 11 instrucciones comparten una misma forma: \texttt{rd = rd op algo} (el
+registro destino es tambien el primer operando; por eso RVC ahorra bits). El
+descompresor las decodifica con un \texttt{case} sobre \texttt{\{op, funct3\}} y,
+donde hace falta, sub-campos adicionales. Los registros restringidos
+\texttt{rd'/rs2'} de los formatos CA y CB se mapean al rango x8--x15 anteponiendo
+\texttt{01} a sus 3 bits:
+
+\begin{lstlisting}
+  wire [4:0] rdp  = {2'b01, c[9:7]};
+  wire [4:0] rs2p = {2'b01, c[4:2]};
+\end{lstlisting}
+
+\subsection{Formato CI: \texttt{c.addi}, \texttt{c.lui}, \texttt{c.slli}}
+
+Usan un registro completo (5 bits) y un inmediato de 6 bits formado por
+\texttt{\{c[12], c[6:2]\}}.
+
+\begin{lstlisting}
+  5'b01_000: instr = {immci, rd, 3'b000, rd, 7'b0010011};   // c.addi -> addi rd,rd,imm
+  5'b01_011: instr = {immlui, rd, 7'b0110111};              // c.lui  -> lui rd,imm
+  5'b10_000: instr = {7'b0000000, shamt, rd, 3'b001, rd, 7'b0010011}; // c.slli
+\end{lstlisting}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{c.addi}: el inmediato \texttt{immci = \{\{7\{c[12]\}\}, c[6:2]\}}
+        es la extension de signo de 6 a 12 bits.
+  \item \texttt{c.lui}: \texttt{immlui = \{\{15\{c[12]\}\}, c[6:2]\}} ocupa
+        imm[31:12]; el destino no puede ser x0 ni x2.
+  \item \texttt{c.slli}: el shamt son los 5 bits \texttt{c[6:2]}; funct7=0000000,
+        funct3=001.
+\end{itemize}
+
+\subsection{Formato CR: \texttt{c.add}}
+
+Usa dos registros completos. Comparte \texttt{\{op,funct3\}=\{10,100\}} con otras
+instrucciones del cuadrante 2, asi que se distingue por \texttt{c[12]=1} y
+\texttt{rs2 != 0}:
+
+\begin{lstlisting}
+  5'b10_100: instr = (c[12] && rs2 != 0)
+                   ? {7'b0000000, rs2, rd, 3'b000, rd, 7'b0110011}  // c.add -> add rd,rd,rs2
+                   : instrraw;
+\end{lstlisting}
+
+\subsection{Formato CA: \texttt{c.sub}, \texttt{c.xor}, \texttt{c.or}, \texttt{c.and}}
+
+Operaciones registro-registro con registros restringidos x8--x15. Comparten
+\texttt{\{op,funct3\}=\{01,100\}}; dentro, \texttt{c[11:10]=11} indica la familia
+CA y \texttt{c[6:5]} elige la operacion:
+
+\begin{lstlisting}
+  2'b11: case (c[6:5])
+           2'b00: instr = {7'b0100000, rs2p, rdp, 3'b000, rdp, 7'b0110011}; // c.sub
+           2'b01: instr = {7'b0000000, rs2p, rdp, 3'b100, rdp, 7'b0110011}; // c.xor
+           2'b10: instr = {7'b0000000, rs2p, rdp, 3'b110, rdp, 7'b0110011}; // c.or
+           2'b11: instr = {7'b0000000, rs2p, rdp, 3'b111, rdp, 7'b0110011}; // c.and
+         endcase
+\end{lstlisting}
+
+Solo \texttt{c.sub} usa funct7=0100000; las demas, 0000000. El funct3 distingue la
+operacion logica.
+
+\subsection{Formato CB: \texttt{c.srli}, \texttt{c.srai}, \texttt{c.andi}}
+
+Un registro restringido y un inmediato/shamt de 6 bits. Comparten la misma entrada
+\texttt{\{01,100\}}; se distinguen por \texttt{c[11:10]}:
+
+\begin{lstlisting}
+  2'b00: instr = {7'b0000000, shamt, rdp, 3'b101, rdp, 7'b0010011}; // c.srli
+  2'b01: instr = {7'b0100000, shamt, rdp, 3'b101, rdp, 7'b0010011}; // c.srai
+  2'b10: instr = {immci, rdp, 3'b111, rdp, 7'b0010011};             // c.andi
+\end{lstlisting}
+
+\texttt{c.srli} y \texttt{c.srai} se diferencian por funct7 (logico vs
+aritmetico); \texttt{c.andi} reusa el inmediato con signo \texttt{immci}.
+
+\section{Resultados}
+
+\subsection{Programa de prueba: multiplicacion sin \texttt{MUL}}
+
+El ISA base RV32I no incluye instruccion de multiplicacion. El programa de prueba
+calcula \texttt{6 $\times$ 10} mediante la tecnica de \emph{shift-and-add}:
+\[
+6 \times 10 = 6 \times 8 + 6 \times 2 = (6 \ll 3) + (6 \ll 1).
+\]
+Mezcla instrucciones de 32 bits (\texttt{addi}, \texttt{sw}) con comprimidas de 16
+bits (\texttt{c.slli}, \texttt{c.add}):
+
+\begin{lstlisting}
+    addi x8, x0, 6     ; x8 = 6            (32 bits)
+    addi x9, x0, 6     ; copia            (32 bits)
+    slli x8, x8, 3     ; c.slli: 6<<3 = 48 (16 bits)
+    slli x9, x9, 1     ; c.slli: 6<<1 = 12 (16 bits)
+    add  x8, x8, x9    ; c.add:  48+12 = 60 (16 bits)
+    sw   x8, 0(x0)     ; Mem[0] = 60       (32 bits)
+\end{lstlisting}
+
+El resultado esperado es \texttt{Mem[0] = 60}.
+
+\subsection{Waveform}
+
+La Figura~\ref{fig:mul10wave} muestra la ejecucion completa del programa.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{mul10_waveform.png}
+  \caption{Ejecucion de la multiplicacion \texttt{6$\times$10} por
+  \emph{shift-and-add}. Se observan el incremento variable del PC, la
+  descompresion (\texttt{InstrF} cruda vs \texttt{InstrDecF} expandida) y el
+  resultado intermedio de la ALU.}
+  \label{fig:mul10wave}
+\end{figure}
+
+En el waveform se verifican, paso a paso, los mecanismos implementados:
+
+\begin{itemize}[leftmargin=1.6em]
+  \item \textbf{Incremento variable del PC.} \texttt{PCF} avanza \texttt{+4} en las
+        instrucciones de 32 bits (\texttt{0x0}$\to$\texttt{0x4}$\to$\texttt{0x8})
+        y \texttt{+2} en las comprimidas
+        (\texttt{0x8}$\to$\texttt{0xA}$\to$\texttt{0xC}$\to$\texttt{0xE}).
+  \item \textbf{Deteccion de comprimida.} \texttt{compressedF} sube a 1 justo
+        durante las tres instrucciones de 16 bits.
+  \item \textbf{Descompresion.} Comparando \texttt{InstrF} (cruda) con
+        \texttt{InstrDecF} (expandida): la comprimida \texttt{0x040E} se traduce a
+        \texttt{0x00341413} (\texttt{slli x8, x8, 3}), y \texttt{0x9426} a
+        \texttt{0x00940433} (\texttt{add x8, x8, x9}). Tambien se aprecia la
+        \emph{ventana deslizante}: la \texttt{sw} aparece reensamblada como
+        \texttt{0x00802023} cuando \texttt{PC[1]=1}.
+  \item \textbf{La multiplicacion.} \texttt{ALUResultE} muestra la secuencia
+        \texttt{48} ($6\ll3$), \texttt{12} ($6\ll1$) y \texttt{60} ($48+12$), que
+        es exactamente el \emph{shift-and-add}.
+  \item \textbf{Resultado final.} Al final \texttt{MemWrite=1}, \texttt{DataAdr=0}
+        y \texttt{WriteData=60}: el programa escribe \texttt{Mem[0] = 60}, el
+        resultado correcto de $6\times10$.
+\end{itemize}
+
+\subsection{Validacion automatizada}
+
+Cada familia de instrucciones se valido con un testbench propio, integrado a la
+regresion completa. Todos los casos pasan (17 de 17, incluidos los 12 de la Parte
+1 del proyecto):
+
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Prueba} & \textbf{Instrucciones} & \textbf{Resultado} \\
+\midrule
+\texttt{caddi} & \texttt{c.addi} & \texttt{Mem[0]=8} \\
+\texttt{cir}   & \texttt{c.lui, c.slli, c.add} & \texttt{Mem[0]=17, Mem[4]=4096} \\
+\texttt{ca}    & \texttt{c.sub, c.xor, c.or, c.and} & \texttt{Mem[0..12]=2,6,14,8} \\
+\texttt{cb}    & \texttt{c.srli, c.srai, c.andi} & \texttt{Mem[0..8]=10,-4,4} \\
+\texttt{mul10} & \texttt{c.slli, c.add} (mixto) & \texttt{Mem[0]=60} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Los programas combinan instrucciones de 16 y 32 bits, y cada resultado coincide
+con el valor esperado, confirmando que la extension C funciona correctamente sobre
+el procesador segmentado.
 
 \end{document}

@@ -27,7 +27,7 @@ Distinción 16/32 bits: `instr[1:0] != 2'b11` indica instrucción comprimida.
 | E2.2 | c.lui, c.slli (CI), c.add (CR) | hecha |
 | E2.3 | c.sub, c.and, c.or, c.xor (CA) | hecha |
 | E2.4 | c.srli, c.srai, c.andi (CB) | hecha |
-| E2.5 | programa mixto 16/32 + waveforms + informe | pendiente |
+| E2.5 | programa mixto 16/32 + waveforms + informe | hecha |
 
 ## Flujo de trabajo por fase
 
@@ -339,3 +339,41 @@ c.addi, c.lui, c.slli, c.add, c.sub, c.xor, c.or, c.and, c.srli, c.srai, c.andi.
 ### Estado
 
 Completada (2026-06-24).
+
+---
+
+## E2.5 — Entrega (programa mixto + waveform + informe)
+
+### Meta de la fase
+
+Cerrar E2: un programa que integre comprimidas con RV32I de forma util, su
+waveform explicado, y la redaccion de la Parte 2 del informe.
+
+### Programa: multiplicacion sin MUL
+
+`tests/programs/riscvtest_mul10.s` calcula `6 * 10` por shift-and-add
+(`6*10 = (6<<3) + (6<<1)`), ya que RV32I base no tiene multiplicacion. Mezcla
+`addi`/`sw` (32 bits) con `c.slli`/`c.add` (16 bits) -> `Mem[0] = 60`.
+
+### Waveform
+
+`waves/mul10/mul10.vcd` + `waves/mul10/mul10.gtkw` (vista curada con PCF, InstrF,
+compressedF, InstrDecF, ALUResultE y WriteData). La captura
+`docs/mul10_waveform.png` muestra: el incremento +4/+2 del PC, `compressedF`
+activandose, la descompresion `InstrF` (cruda) vs `InstrDecF` (expandida), la
+ventana deslizante reensamblando la `sw`, y la ALU dando 48 -> 12 -> 60.
+
+### Informe
+
+`docs/informe.tex` (Parte 2) con: introduccion a RVC, cambios en el datapath
+(los tres de los cimientos), implementacion de las 11 instrucciones por formato
+(CI/CR/CA/CB con su codigo de expansion), y la seccion de resultados (programa,
+waveform explicado, tabla de validacion 17/17). Compila en 21 paginas.
+
+### Validación
+
+`make test` -> 17 PASS (12 RV32I + caddi, cir, ca, cb, mul10).
+
+### Estado
+
+Completada (2026-06-24). **Entrega 2 terminada.**
