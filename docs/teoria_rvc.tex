@@ -483,7 +483,7 @@ altos). Reensamblada correctamente.
 
 \paragraph{Compatibilidad con RV32I.} Para un programa 100\,\% de 32 bits,
 \code{PC[1]} es siempre 0, así que \code{rd = w0 = RAM[k]}: idéntico a la
-\code{imem} original. Esa es la garantía de que la plomería no rompe nada.
+\code{imem} original. Esa es la garantía de que los cimientos no rompen nada.
 
 %==================================================================
 \section{El incremento del PC: \texttt{+2} o \texttt{+4}}
@@ -525,7 +525,7 @@ desalineado (\code{PC[1]=1}) y la ventana deslizante reensambla \code{C} desde d
 palabras.
 
 %==================================================================
-\section{Resumen de la Fase 0 (``plomería'')}
+\section{Resumen de la Fase 0 (``cimientos'')}
 %==================================================================
 
 La Fase 0 instala la infraestructura que necesita \emph{cualquier} comprimida,
@@ -734,7 +734,7 @@ descompresor sin rehacer lo anterior.
 \toprule
 Fase & Contenido & Notas \\
 \midrule
-\textbf{0} & Plomería & \code{imem} ventana deslizante + \code{PCPlusInc} ($+2/+4$) + \code{decompressor.v} en \emph{passthrough}. La regresión RV32I debe seguir intacta. Es también el ``cambio extra al datapath'' que pide la rúbrica. \\
+\textbf{0} & Cimientos & \code{imem} ventana deslizante + \code{PCPlusInc} ($+2/+4$) + \code{decompressor.v} en \emph{passthrough}. La regresión RV32I debe seguir intacta. Es también el ``cambio extra al datapath'' que pide la rúbrica. \\
 \textbf{E2.1} & \code{c.addi} (CI) & prueba de concepto: valida el camino completo \emph{fetch} desalineado $\to$ expandir $\to$ ejecutar. \\
 \textbf{E2.2} & \code{c.lui}, \code{c.slli} (CI), \code{c.add} (CR) & registros completos; inmediato/shamt directos. \\
 \textbf{E2.3} & \code{c.sub}, \code{c.and}, \code{c.or}, \code{c.xor} (CA) & introducen registros restringidos x8--x15. \\
@@ -747,7 +747,7 @@ Fase & Contenido & Notas \\
 \noindent
 En toda la Entrega 2, como la expansión produce RV32I normal, \textbf{no se
 modifican} \code{controller}, \code{aludec}, \code{extend} ni la unidad de
-riesgos: todo el trabajo vive en \code{decompressor.v} y en la plomería de la
+riesgos: todo el trabajo vive en \code{decompressor.v} y en los cimientos de la
 Fase 0.
 
 %------------------------------------------------------------------
@@ -807,7 +807,7 @@ instrucciones de 16 bits, y a traducirlas a RV32I antes de que entren al
 pipeline}. La memoria con ventana deslizante resuelve la lectura desalineada; el
 incremento $+2/+4$ resuelve el avance; el descompresor traduce. El resto del
 procesador no se entera y no cambia. Implementar cada instrucción concreta es,
-después de esta plomería, solo rellenar el \emph{case} del descompresor según los
+después de estos cimientos, solo rellenar el \emph{case} del descompresor según los
 formatos y el repertorio aquí descritos.
 
 \end{document}

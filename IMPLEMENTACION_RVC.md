@@ -22,7 +22,7 @@ Distinción 16/32 bits: `instr[1:0] != 2'b11` indica instrucción comprimida.
 
 | Fase | Contenido | Estado |
 |------|-----------|--------|
-| 0 — Plomería | imem ventana deslizante + PCPlusInc (+2/+4) + decompressor passthrough | pendiente |
+| 0 — Cimientos | imem ventana deslizante + PCPlusInc (+2/+4) + decompressor passthrough | pendiente |
 | E2.1 | c.addi (CI) — prueba de concepto | pendiente |
 | E2.2 | c.lui, c.slli (CI), c.add (CR) | pendiente |
 | E2.3 | c.sub, c.and, c.or, c.xor (CA) | pendiente |
@@ -39,7 +39,7 @@ Convención de nombres: `tests/programs/riscvtest_<name>.mem`,
 
 ---
 
-## Fase 0 — Plomería
+## Fase 0 — Cimientos
 
 ### Idea
 
