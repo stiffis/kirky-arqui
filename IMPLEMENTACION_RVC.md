@@ -26,7 +26,7 @@ Distinción 16/32 bits: `instr[1:0] != 2'b11` indica instrucción comprimida.
 | E2.1 | c.addi (CI) — prueba de concepto | hecha |
 | E2.2 | c.lui, c.slli (CI), c.add (CR) | hecha |
 | E2.3 | c.sub, c.and, c.or, c.xor (CA) | hecha |
-| E2.4 | c.srli, c.srai, c.andi (CB) | pendiente |
+| E2.4 | c.srli, c.srai, c.andi (CB) | hecha |
 | E2.5 | programa mixto 16/32 + waveforms + informe | pendiente |
 
 ## Flujo de trabajo por fase
@@ -276,6 +276,65 @@ emitiera `c.sub/c.xor/c.or/c.and` con registros restringidos (s0,s1,a0,a1,a2).
 
 `make test` -> 15 PASS (Mem[0]=2, Mem[4]=6, Mem[8]=14, Mem[12]=8).
 `make wave PROG=ca` -> `waves/ca/ca.vcd`.
+
+### Estado
+
+Completada (2026-06-24).
+
+---
+
+## E2.4 — c.srli, c.srai, c.andi
+
+### Meta de la fase
+
+Cerrar la familia CB y, con ella, las 11 instrucciones de E2. Estas tres comparten
+la entrada `{op,funct3}={01,100}` con la CA de E2.3 (eran las ramas que en E2.3
+quedaron en passthrough). Se distinguen por `c[11:10]`.
+
+### Como se implemento y por que
+
+Se reescribio la entrada `5'b01_100` como un unico `case (c[11:10])`, mas claro
+que el if/else previo:
+
+```
+case (c[11:10])
+  2'b00: srli -> {7'b0000000, shamt, rdp, 3'b101, rdp, 7'b0010011}
+  2'b01: srai -> {7'b0100000, shamt, rdp, 3'b101, rdp, 7'b0010011}
+  2'b10: andi -> {immci, rdp, 3'b111, rdp, 7'b0010011}
+  2'b11: <CA: c.sub/xor/or/and segun c[6:5]>
+endcase
+```
+
+- `c.srli`/`c.srai` (CB): shamt = `c[6:2]`, funct3=101; la diferencia es funct7
+  (0000000 logico vs 0100000 aritmetico), igual que en RV32I.
+- `c.andi` (CB): reusa `immci` (el mismo inmediato de 6 bits con signo que `c.addi`)
+  y funct3=111. Registro restringido `rdp`.
+
+Reuso de variables: `shamt` (= c[6:2]) e `immci` ya existian de fases anteriores;
+no hizo falta nada nuevo, solo cablear las tres expansiones.
+
+### Programa de prueba y por que esos valores
+
+`tests/programs/riscvtest_cb.s`:
+
+```
+addi x8, x0, 40   ; srli: 40 >> 2 = 10     -> Mem[0]=10
+addi x9, x0, -8   ; srai: -8 >> 1 = -4     -> Mem[4]=0xFFFFFFFC
+addi x10, x0, 13  ; andi: 13 & 6 = 4       -> Mem[8]=4
+```
+
+Se uso `x9 = -8` a proposito para que `c.srai` demuestre el **corrimiento
+aritmetico** (mantiene el signo): -8 >> 1 = -4 = 0xFFFFFFFC, distinto de un
+corrimiento logico. Todos los registros en x8--x15 para que las comprimidas sean
+validas. Verificado con `objdump`.
+
+### Validación
+
+`make test` -> 16 PASS (Mem[0]=10, Mem[4]=-4, Mem[8]=4).
+`make wave PROG=cb` -> `waves/cb/cb.vcd`.
+
+Con E2.4 quedan implementadas las **11 instrucciones** de la Parte 1 de RVC:
+c.addi, c.lui, c.slli, c.add, c.sub, c.xor, c.or, c.and, c.srli, c.srai, c.andi.
 
 ### Estado
 
