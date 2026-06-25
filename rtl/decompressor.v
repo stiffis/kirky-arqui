@@ -6,7 +6,10 @@ module decompressor(input  [31:0] instrraw,
   wire [1:0]  op     = c[1:0];
   wire [2:0]  funct3 = c[15:13];
   wire [4:0]  rd     = c[11:7];
+  wire [4:0]  rs2    = c[6:2];
+  wire [4:0]  shamt  = c[6:2];
   wire [11:0] immci  = {{7{c[12]}}, c[6:2]};
+  wire [19:0] immlui = {{15{c[12]}}, c[6:2]};
 
   assign compressed = (op != 2'b11);
 
@@ -15,6 +18,11 @@ module decompressor(input  [31:0] instrraw,
     if (compressed) begin
       case ({op, funct3})
         5'b01_000: instr = {immci, rd, 3'b000, rd, 7'b0010011};
+        5'b01_011: instr = {immlui, rd, 7'b0110111};
+        5'b10_000: instr = {7'b0000000, shamt, rd, 3'b001, rd, 7'b0010011};
+        5'b10_100: instr = (c[12] && rs2 != 5'b0)
+                         ? {7'b0000000, rs2, rd, 3'b000, rd, 7'b0110011}
+                         : instrraw;
         default:   instr = instrraw;
       endcase
     end

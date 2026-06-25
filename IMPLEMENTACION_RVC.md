@@ -24,7 +24,7 @@ Distinción 16/32 bits: `instr[1:0] != 2'b11` indica instrucción comprimida.
 |------|-----------|--------|
 | 0 — Cimientos | imem ventana deslizante + PCPlusInc (+2/+4) + decompressor passthrough | hecha |
 | E2.1 | c.addi (CI) — prueba de concepto | hecha |
-| E2.2 | c.lui, c.slli (CI), c.add (CR) | pendiente |
+| E2.2 | c.lui, c.slli (CI), c.add (CR) | hecha |
 | E2.3 | c.sub, c.and, c.or, c.xor (CA) | pendiente |
 | E2.4 | c.srli, c.srai, c.andi (CB) | pendiente |
 | E2.5 | programa mixto 16/32 + waveforms + informe | pendiente |
@@ -137,6 +137,82 @@ estrena el camino desalineado de la `imem`.
 
 `make test` -> 13 PASS (12 RV32I + caddi: `Mem[0] = 8`).
 `make wave PROG=caddi` -> `waves/caddi/caddi.vcd`.
+
+### Estado
+
+Completada (2026-06-24).
+
+---
+
+## E2.2 — c.lui, c.slli, c.add
+
+### Meta de la fase
+
+Agregar las tres comprimidas que usan **registros completos** (de 5 bits,
+cualquiera de x0--x31): dos del formato CI (`c.lui`, `c.slli`) y una del CR
+(`c.add`). Es el escalon natural tras `c.addi` porque comparten el manejo de
+registros de 5 bits y todavia NO introducen los registros restringidos x8--x15
+(eso llega en E2.3). Asi se sube la dificultad de a poco.
+
+### Como se implemento y por que
+
+Se agregaron variables nombradas en `decompressor.v` para que cada expansion se
+lea como pseudocodigo: `rs2 = c[6:2]`, `shamt = c[6:2]`, `immlui = {{15{c[12]}}, c[6:2]}`.
+Se definen aparte aunque algunas comparten bits, porque cumplen roles distintos
+segun la instruccion (la legibilidad pesa mas que evitar el alias).
+
+Las tres entradas del `case ({op, funct3})`:
+
+```
+5'b01_011: instr = {immlui, rd, 7'b0110111};                         // c.lui
+5'b10_000: instr = {7'b0000000, shamt, rd, 3'b001, rd, 7'b0010011};  // c.slli
+5'b10_100: instr = (c[12] && rs2 != 0)                               // c.add
+                 ? {7'b0000000, rs2, rd, 3'b000, rd, 7'b0110011}
+                 : instrraw;
+```
+
+- **`c.lui`** (CI, op=01 funct3=011) -> `lui rd, imm`. Por que `immlui =
+  {{15{c[12]}}, c[6:2]}`: el nzimm de 6 bits ocupa imm[17:12] y se extiende en
+  signo hasta el bit 31; como el campo U del `lui` es imm[31:12] (20 bits), eso es
+  15 copias del signo (`c[12]`) seguidas de los 5 bits bajos. El `extend.v`
+  existente ya construye `{instr[31:12], 12'b0}` para `lui`, asi que no se toca
+  nada aguas abajo. Restriccion del ISA: el destino no puede ser x0 ni x2.
+
+- **`c.slli`** (CI, op=10 funct3=000) -> `slli rd, rd, shamt`. El shamt son los 5
+  bits `c[6:2]`; el `slli` de RV32I es I-type con funct7=0000000 y funct3=001. En
+  RV32 el bit `c[12]` (shamt[5]) es 0, por eso solo se usan 5 bits.
+
+- **`c.add`** (CR, op=10 funct3=100) -> `add rd, rd, rs2`. Aqui hay una sutileza:
+  `{op, funct3}=10100` lo comparten varias instrucciones del cuadrante 2
+  (`c.mv`, `c.jr`, `c.jalr`, `c.add`), que se distinguen por `c[12]` y por si
+  `rs2` es cero. Por eso la condicion `c[12] && rs2 != 0` selecciona
+  exactamente `c.add`; lo demas cae a passthrough hasta que toque (c.jr/c.jalr
+  son de E3). Es la primera vez que una entrada del case necesita desambiguar.
+
+### Programa de prueba y por que esos valores
+
+`tests/programs/riscvtest_cir.s` encadena las tres para que cada resultado dependa
+del anterior (asi un solo valor final valida toda la cadena):
+
+```
+addi x8, x0, 3   ; x8 = 3      (32 bits)
+c.slli x8, 2     ; x8 = 12     (3 << 2)
+addi x9, x0, 5   ; x9 = 5      (32 bits)
+c.add x8, x9     ; x8 = 17     (12 + 5)
+c.lui x10, 1     ; x10 = 0x1000 = 4096
+sw x8, 0(x0)     ; Mem[0] = 17
+sw x10, 4(x0)    ; Mem[4] = 4096
+```
+
+Se uso `.option rvc/norvc` para forzar que solo `slli`, `add` y `lui` se
+compriman (los `addi` quedan en 32 bits para mantener la mezcla 16/32). Se
+verifico con `objdump` que el ensamblador emitiera `c.slli`/`c.add`/`c.lui` y no
+otras comprimidas aun no soportadas.
+
+### Validación
+
+`make test` -> 14 PASS (caddi + cir: `Mem[0]=17`, `Mem[4]=4096`).
+`make wave PROG=cir` -> `waves/cir/cir.vcd`.
 
 ### Estado
 
