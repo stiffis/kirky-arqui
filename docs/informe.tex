@@ -595,16 +595,16 @@ correctamente en todas sus etapas.
 \subsubsection{Cómo se ejecutan las pruebas}
 
 La memoria de instrucciones (\texttt{imem}) carga su contenido desde el archivo
-\texttt{riscvtest.txt} mediante \texttt{\$readmemh}. Por eso, cada prueba consiste en un
-par \textbf{programa~(\texttt{.txt})~+~testbench~(\texttt{.v})}: se elige el programa de
-la familia que se quiere validar, se copia como \texttt{riscvtest.txt} y se compila junto
+\texttt{riscvtest.mem} mediante \texttt{\$readmemh}. Por eso, cada prueba consiste en un
+par \textbf{programa~(\texttt{.mem})~+~testbench~(\texttt{.v})}: se elige el programa de
+la familia que se quiere validar, se copia como \texttt{riscvtest.mem} y se compila junto
 con su \textit{testbench}. Por ejemplo, para validar los desplazamientos:
 
 \begin{lstlisting}[language={}]
 # 1. elegir el programa (lo carga imem via $readmemh)
-cp tests/programs/riscvtest_shift.txt riscvtest.txt
+cp tests/programs/riscvtest_shift.mem riscvtest.mem
 # 2. compilar el diseno junto con el testbench de esa familia
-iverilog -g2012 -o sim *.v tests/testbench_shift.v
+iverilog -g2012 -o sim rtl/*.v tests/testbench_shift.v
 # 3. ejecutar la simulacion
 vvp sim
 \end{lstlisting}
