@@ -1,0 +1,11 @@
+\frametitle{Programa algoritmo: \texttt {sumloop}}
+Bucle que acumula $5+4+3+2+1=15$, mezclando 32 y 16 bits:
+\begin{lstlisting}
+    addi x8, x0, 5     ; n = 5            (32 bits)
+    addi x9, x0, 0     ; acc = 0          (32 bits)
+LOOP:
+    add  x9, x9, x8    ; c.add: acc += n  (16 bits)
+    addi x8, x8, -1    ; c.addi: n--      (16 bits)
+    bnez x8, LOOP      ; c.bnez: repetir  (16 bits)
+    sw   x9, 0(x0)     ; Mem[0] = 15      (32 bits)
+\end{lstlisting}

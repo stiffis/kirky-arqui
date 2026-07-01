@@ -786,18 +786,72 @@ En concreto:
 
 El \textit{script} \texttt{run\_hazard\_demo.sh} compila y ejecuta los tres y resume el
 resultado. Sobre el procesador \textbf{sin} unidad de riesgos, los tres
-\textbf{fallan} (Figura~\ref{fig:hazard-fail}), confirmando que las dependencias no se
-resuelven y que la unidad de riesgos es necesaria.
+\textbf{fallan}, confirmando que las dependencias no se resuelven y que la unidad
+de riesgos es necesaria. Para verlo con evidencia de señal (no solo el mensaje de
+\texttt{\$display}), se generó una copia del procesador con la
+\texttt{hazardunit.v} neutralizada (\texttt{ForwardAE/BE=00}, \texttt{StallF/D=0},
+\texttt{FlushD/E=0}, es decir, sin ningún mecanismo activo) y se capturó el
+\textit{waveform} de cada programa.
 
-\begin{figure}[ht]
+\paragraph{Caso \textit{forward}.} La Figura~\ref{fig:hazard-forward-fail} muestra
+\texttt{add x3,x1,x2} leyendo sus operandos \textbf{antes} de que \texttt{addi x1}
+y \texttt{addi x2} terminen de escribirse en el banco de registros (que ocurre
+recién en Writeback, varios ciclos después). Sin \textit{forwarding} que adelante
+esos valores a Execute, la ALU recibe operandos indefinidos: \texttt{ALUResultE}
+sale en \texttt{xxxxxxxx} en el ciclo del \texttt{add}, y ese valor \texttt{X} se
+propaga hasta \texttt{WriteData}, corrompiendo la escritura a memoria.
+
+\begin{figure}[H]
 	\centering
-	\includegraphics[width=0.85\textwidth]{hazard_fail.png}
-	\caption{Salida de \texttt{run\_hazard\_demo.sh}: los programas 2, 3 y 4 fallan al
-		ejecutarse sin la unidad de riesgos.}
-	\label{fig:hazard-fail}
+	\includegraphics[width=\textwidth]{hazard_forward_nohu.png}
+	\caption{Programa de \textit{forward} sin unidad de riesgos: \texttt{ALUResultE}
+		queda en \texttt{X} durante el \texttt{add} porque \texttt{x1}/\texttt{x2} aún
+		no se han escrito en el banco de registros.}
+	\label{fig:hazard-forward-fail}
 \end{figure}
 
+\paragraph{Caso \textit{stall}.} La Figura~\ref{fig:hazard-stall-fail} muestra el
+riesgo \textit{load-use}: \texttt{add x3,x2,x2} se ejecuta \textbf{inmediatamente
+	después} de \texttt{lw x2,8(x0)}, sin darle tiempo a la etapa Memory de traer el
+dato. Sin \textit{stall} que detenga un ciclo al \texttt{add}, este lee el valor
+\textbf{viejo} de \texttt{x2} (el que había antes del \texttt{lw}) en vez del
+recién cargado. El resultado se ve al final de la traza: \texttt{WriteData} llega
+en \texttt{xxxxxxxx} a la escritura final, en vez del \texttt{14} esperado.
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=\textwidth]{hazard_stall_nohu.png}
+	\caption{Programa de \textit{stall} sin unidad de riesgos: el \texttt{add}
+		inmediatamente posterior al \texttt{lw} no espera el dato de memoria;
+		\texttt{WriteData} termina indefinido.}
+	\label{fig:hazard-stall-fail}
+\end{figure}
+
+\paragraph{Caso \textit{flush}.} La Figura~\ref{fig:hazard-flush-fail} muestra el
+riesgo de control: el \texttt{beq x1,x0,SKIP} se toma (\texttt{x1=0}), pero sin
+\textit{flush} las dos instrucciones del camino secuencial equivocado
+(\texttt{addi x2,x0,99} y \texttt{sw x2,0(x0)}), ya captadas antes de resolver el
+salto, \textbf{se ejecutan igual}. Se observa \texttt{ALUResultE = 0x63} (99 en
+decimal) y, poco después, una escritura a \texttt{DataAdr = 0} con ese valor: el
+camino erróneo alcanza a escribir en memoria antes de que el programa continúe
+por \texttt{SKIP}, violando la condición de la prueba (``la única escritura debe
+ser \texttt{Mem[4]=5}'').
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=\textwidth]{hazard_flush_nohu.png}
+	\caption{Programa de \textit{flush} sin unidad de riesgos: las instrucciones del
+		camino erróneo tras el \texttt{beq} tomado no se descartan y llegan a escribir
+		\texttt{Mem[0]=99} (\texttt{0x63}).}
+	\label{fig:hazard-flush-fail}
+\end{figure}
+
+En los tres casos la causa es la misma: el pipeline base no tiene forma de
+detectar ni corregir estas situaciones por sí solo, y necesita la unidad de
+riesgos (Sección~\ref{sec:hazard-unit-impl}) para resolverlas.
+
 \subsection{Implementación de la Hazard Unit}
+\label{sec:hazard-unit-impl}
 
 La implementación siguió la organización mostrada en la arquitectura objetivo del
 pipeline: una \textbf{hazard unit separada} del \textit{datapath} y de la unidad de

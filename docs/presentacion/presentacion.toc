@@ -1,0 +1,4 @@
+\beamer@sectionintoc {1}{Pipeline y Hazard Unit}{3}{0}{1}
+\beamer@sectionintoc {2}{Extensión C: instrucciones comprimidas}{15}{0}{2}
+\beamer@sectionintoc {3}{Resultados: algoritmo y comparativa}{25}{0}{3}
+\beamer@sectionintoc {4}{Conclusiones}{30}{0}{4}

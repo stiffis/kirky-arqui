@@ -41,6 +41,7 @@ TESTS=(
   "cj     | riscvtest_cj.mem      | testbench_cj.v"
   "cjr    | riscvtest_cjr.mem     | testbench_cjr.v"
   "sumloop| riscvtest_sumloop.mem | testbench_sumloop.v"
+  "gcd    | riscvtest_gcd.mem     | testbench_gcd.v"
 )
 
 # imem.v lee "riscvtest.mem" del directorio actual: lo respaldamos y restauramos.
