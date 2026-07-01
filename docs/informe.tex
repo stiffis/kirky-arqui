@@ -374,6 +374,28 @@ desplazamiento aritmético con extensión de signo.
 4'b1001: result = $signed(a) >>> b[4:0];  // sra
 \end{lstlisting}
 
+\subsection{ALU modificada: vista interna}
+
+La Figura~\ref{fig:alu-modificada} muestra el interior de la ALU (basada en la
+Figura~5.18(b) de Harris \& Harris, que ya soporta \texttt{slt} con corrección de
+\textit{overflow}) con las operaciones añadidas resaltadas en \textbf{rojo}: la
+compuerta \texttt{xor} (código \texttt{0100}), el paso directo de \texttt{lui}
+(código \texttt{0110}, el inmediato \texttt{B} sin modificar) y el bloque
+\texttt{Shifter} con sus tres salidas \texttt{sll}/\texttt{srl}/\texttt{sra}
+(códigos \texttt{0111}/\texttt{1000}/\texttt{1001}). El multiplexor de salida
+creció de 5 a 10 entradas y \texttt{ALUControl} pasó de 3 a 4 bits para poder
+direccionarlas.
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=\textwidth]{alu_modificada.pdf}
+	\caption{ALU interna con las operaciones añadidas resaltadas en rojo: \texttt{xor},
+		\texttt{lui} y el \textit{shifter} (\texttt{sll}/\texttt{srl}/\texttt{sra}). Las
+		operaciones base (\texttt{add}, \texttt{sub}, \texttt{and}, \texttt{or}, \texttt{slt})
+		se conservan sin cambios.}
+	\label{fig:alu-modificada}
+\end{figure}
+
 \subsection{Extensor de inmediato (\texttt{extend.v})}
 
 Se añadió \texttt{op} como entrada para compartir \texttt{ImmSrc=11} entre \texttt{lui}
@@ -442,6 +464,29 @@ modo que la futura unidad de riesgos solo deberá cubrir las distancias~1 y~2 (c
 resultado aún está en las etapas Execute o Memory), simplificando la lógica de
 \textit{forwarding}; y (iii)~es un cambio mínimo y no destructivo, que no altera el
 resto del datapath.
+
+\subsection{Diagrama de datapath final}
+
+La Figura~\ref{fig:datapath-final} muestra el \textit{datapath} completo del
+pipeline con la implementación de instrucciones, incluyendo la Unidad de Control y
+las señales que se propagan por los registros de pipeline (en azul). Las
+adiciones específicas de este proyecto respecto al pipeline base de Harris \&
+Harris se marcan en \textbf{rojo}: la señal \texttt{Jalr} (que viaja como
+\texttt{JalrD}$\to$\texttt{JalrE}), la señal \texttt{funct3} propagada por
+separado hasta Execute (\texttt{funct3E}, necesaria para distinguir
+\texttt{beq}/\texttt{bne}/\texttt{blt}/\texttt{bge}), \texttt{ALUControl}
+ampliado a 4 bits, y el multiplexor que selecciona entre
+\texttt{PCBranchTargetE} y \texttt{PCJalrTargetE} según \texttt{JalrE} para
+calcular \texttt{PCTargetE}.
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=\textwidth]{datapath_final.pdf}
+	\caption{Datapath final del pipeline con la Unidad de Control (señales en azul) y
+		las adiciones específicas del proyecto en rojo: \texttt{Jalr}, \texttt{funct3E},
+		\texttt{ALUControl} de 4 bits y el multiplexor de destino de \texttt{jalr}.}
+	\label{fig:datapath-final}
+\end{figure}
 
 \subsection{Validación: testbenches por familia}
 \label{sec:tests}
@@ -1212,6 +1257,161 @@ Un registro restringido y un inmediato/shamt de 6 bits. Comparten la misma entra
 \texttt{c.srli} y \texttt{c.srai} se diferencian por funct7 (logico vs
 aritmetico); \texttt{c.andi} reusa el inmediato con signo \texttt{immci}.
 
+\section{Instrucciones de memoria y control de flujo (Parte 2 de RVC)}
+
+Esta segunda tanda anade las 10 instrucciones restantes: acceso a memoria
+(\texttt{c.lw}, \texttt{c.sw}, \texttt{c.lwsp}, \texttt{c.swsp}) y control de
+flujo (\texttt{c.beqz}, \texttt{c.bnez}, \texttt{c.j}, \texttt{c.jal},
+\texttt{c.jr}, \texttt{c.jalr}). La estrategia sigue siendo
+\textbf{descomprimir en Fetch}: ninguna toca las etapas posteriores.
+
+La novedad principal es que cada formato trae su propio \emph{inmediato
+barajado} (\textit{scrambled}): los bits del \textit{offset} no estan
+contiguos en la instruccion de 16 bits, sino repartidos para maximizar la
+densidad. Se declaran como \textit{wires} con nombre para hacerlos legibles:
+
+\begin{lstlisting}
+  wire [6:0]  offlw  = {c[5], c[12:10], c[6], 2'b00};      // CL/CS (c.lw/c.sw)
+  wire [7:0]  offsp  = {c[3:2], c[12], c[6:4], 2'b00};     // c.lwsp
+  wire [7:0]  offssp = {c[8:7], c[12:9], 2'b00};           // c.swsp
+  wire [8:0]  offcb  = {c[12], c[6:5], c[2],
+                        c[11:10], c[4:3], 1'b0};            // c.beqz/c.bnez
+  wire [11:0] offcj  = {c[12], c[8], c[10], c[9], c[6],
+                        c[7], c[2], c[11], c[5:3], 1'b0};   // c.j/c.jal
+\end{lstlisting}
+
+\subsection{Memoria con registros restringidos: \texttt{c.lw}, \texttt{c.sw}}
+
+Formatos CL y CS: registros restringidos \texttt{x8}--\texttt{x15} y un
+\textit{offset} de 5 bits alineado a palabra. \texttt{c.lw} expande a un
+\texttt{lw} tipo~I; \texttt{c.sw} a un \texttt{sw} tipo~S (con el inmediato
+partido en \texttt{imm[11:5]} e \texttt{imm[4:0]}):
+
+\begin{lstlisting}
+  5'b00_010: instr = {5'b0, offlw, rs1p, 3'b010, rs2p, 7'b0000011};   // c.lw
+  5'b00_110: instr = {5'b0, offlw[6:5], rs2p, rs1p, 3'b010,
+                       offlw[4:2], 2'b00, 7'b0100011};                // c.sw
+\end{lstlisting}
+
+Un detalle facil de confundir: el registro destino de \texttt{c.lw}
+(\texttt{rd'}) vive en \texttt{c[4:2]} (la misma posicion que \texttt{rs2'} en
+CS), \textbf{no} en \texttt{c[9:7]}. Por eso se reutiliza \texttt{rs2p} como
+destino.
+
+\subsection{Memoria relativa a la pila: \texttt{c.lwsp}, \texttt{c.swsp}}
+
+Formatos CI y CSS: la base es siempre \texttt{x2} (\textit{stack pointer}) y el
+registro puede ser cualquiera de los 32. Cada uno baraja el \textit{offset}
+distinto:
+
+\begin{lstlisting}
+  5'b10_010: instr = {4'b0, offsp, 5'b00010, 3'b010, rd, 7'b0000011};  // c.lwsp
+  5'b10_110: instr = {4'b0, offssp[7:5], rs2, 5'b00010, 3'b010,
+                       offssp[4:0], 7'b0100011};                       // c.swsp
+\end{lstlisting}
+
+\subsection{Branches condicionales: \texttt{c.beqz}, \texttt{c.bnez}}
+
+Formato CB: comparan un registro restringido contra \texttt{x0} (de ahi el
+sufijo \textit{-z}, ``zero''). Expanden a \texttt{beq}/\texttt{bne} con
+\texttt{rs2 = x0} y el \textit{offset} de 8 bits reordenado al formato~B:
+
+\begin{lstlisting}
+  5'b01_110: instr = {offcb[8], {3{offcb[8]}}, offcb[7:5], 5'b00000,
+                       rs1p, 3'b000, offcb[4:1], offcb[8], 7'b1100011}; // c.beqz
+  5'b01_111: instr = {offcb[8], {3{offcb[8]}}, offcb[7:5], 5'b00000,
+                       rs1p, 3'b001, offcb[4:1], offcb[8], 7'b1100011}; // c.bnez
+\end{lstlisting}
+
+\subsection{Saltos incondicionales: \texttt{c.j}, \texttt{c.jal}}
+
+Formato CJ: \textit{offset} de 11 bits. \texttt{c.j} expande a \texttt{jal x0}
+(descarta la direccion de retorno) y \texttt{c.jal} a \texttt{jal x1} (la
+guarda). El \textit{offset} se reordena al desperdigado formato~J:
+
+\begin{lstlisting}
+  5'b01_101: instr = {offcj[11], offcj[10:1], offcj[11],
+                       {8{offcj[11]}}, 5'b00000, 7'b1101111};  // c.j  -> jal x0
+  5'b01_001: instr = {offcj[11], offcj[10:1], offcj[11],
+                       {8{offcj[11]}}, 5'b00001, 7'b1101111};  // c.jal -> jal x1
+\end{lstlisting}
+
+\subsection{Saltos a registro: \texttt{c.jr}, \texttt{c.jalr}}
+
+Formato CR. Comparten \texttt{\{op,funct3\}=\{10,100\}} con \texttt{c.mv} y
+\texttt{c.add} (de la Parte~1). La desambiguacion usa \texttt{c[12]} y si
+\texttt{rs2} es cero:
+
+\begin{lstlisting}
+  5'b10_100:
+    if (!c[12] && rs2 == 5'b0)
+      instr = {12'b0, rd, 3'b000, 5'b00000, 7'b1100111}; // c.jr   -> jalr x0
+    else if (!c[12])
+      instr = {7'b0, rs2, 5'b00000, 3'b000, rd, 7'b0110011}; // c.mv -> add rd,x0,rs2
+    else if (rs2 == 5'b0)
+      instr = {12'b0, rd, 3'b000, 5'b00001, 7'b1100111}; // c.jalr -> jalr x1
+    else
+      instr = {7'b0000000, rs2, rd, 3'b000, rd, 7'b0110011}; // c.add
+\end{lstlisting}
+
+\texttt{c.jr rs1} salta a \texttt{rs1} sin guardar retorno (\texttt{rd=x0});
+\texttt{c.jalr rs1} salta guardando el retorno en \texttt{x1}.
+
+\subsection{Cambios en el datapath}
+
+Al igual que en la Parte~1 de RVC, \textbf{no hubo ningun cambio en el
+datapath ni en el resto de modulos}: todas las instrucciones nuevas son casos
+adicionales dentro del \texttt{decompressor.v} combinacional. Las de memoria se
+expanden a \texttt{lw}/\texttt{sw} que el pipeline ya ejecutaba; las de control
+a \texttt{beq}/\texttt{bne}/\texttt{jal}/\texttt{jalr} que la unidad de riesgos
+ya resolvia (\textit{flush} en salto tomado). El unico cuidado extra fue
+respetar el ``no hay \texttt{auipc}'' del Cuadro~1 al escribir los programas de
+prueba.
+
+\subsection{Encoding de todas las instrucciones (Parte 1 y Parte 2)}
+
+El Cuadro~\ref{cuadro:encoding} resume la codificacion de las 21 instrucciones
+comprimidas implementadas, con su cuadrante (\texttt{op = c[1:0]}), su
+\texttt{funct3 = c[15:13]}, el formato RVC y la instruccion RV32I equivalente a
+la que expande el descompresor.
+
+\begin{table}[H]
+	\centering
+	\small
+	\begin{tabular}{@{}llllll@{}}
+		\toprule
+		\textbf{Instr.} & \textbf{op} & \textbf{funct3} & \textbf{Formato} & \textbf{Expande a} & \textbf{Parte} \\
+		\midrule
+		\texttt{c.addi} & 01 & 000 & CI  & \texttt{addi rd, rd, imm}       & 1 \\
+		\texttt{c.jal}  & 01 & 001 & CJ  & \texttt{jal x1, off}            & 2 \\
+		\texttt{c.lui}  & 01 & 011 & CI  & \texttt{lui rd, imm}            & 1 \\
+		\texttt{c.srli} & 01 & 100 & CB  & \texttt{srli rd', rd', shamt}   & 1 \\
+		\texttt{c.srai} & 01 & 100 & CB  & \texttt{srai rd', rd', shamt}   & 1 \\
+		\texttt{c.andi} & 01 & 100 & CB  & \texttt{andi rd', rd', imm}     & 1 \\
+		\texttt{c.sub}  & 01 & 100 & CA  & \texttt{sub rd', rd', rs2'}     & 1 \\
+		\texttt{c.xor}  & 01 & 100 & CA  & \texttt{xor rd', rd', rs2'}     & 1 \\
+		\texttt{c.or}   & 01 & 100 & CA  & \texttt{or rd', rd', rs2'}      & 1 \\
+		\texttt{c.and}  & 01 & 100 & CA  & \texttt{and rd', rd', rs2'}     & 1 \\
+		\texttt{c.j}    & 01 & 101 & CJ  & \texttt{jal x0, off}            & 2 \\
+		\texttt{c.beqz} & 01 & 110 & CB  & \texttt{beq rs1', x0, off}      & 2 \\
+		\texttt{c.bnez} & 01 & 111 & CB  & \texttt{bne rs1', x0, off}      & 2 \\
+		\texttt{c.slli} & 10 & 000 & CI  & \texttt{slli rd, rd, shamt}     & 1 \\
+		\texttt{c.lwsp} & 10 & 010 & CI  & \texttt{lw rd, off(x2)}         & 2 \\
+		\texttt{c.jr}   & 10 & 100 & CR  & \texttt{jalr x0, rs1, 0}        & 2 \\
+		\texttt{c.mv}$^\dagger$ & 10 & 100 & CR & \texttt{add rd, x0, rs2} & --- \\
+		\texttt{c.jalr} & 10 & 100 & CR  & \texttt{jalr x1, rs1, 0}        & 2 \\
+		\texttt{c.add}  & 10 & 100 & CR  & \texttt{add rd, rd, rs2}        & 1 \\
+		\texttt{c.swsp} & 10 & 110 & CSS & \texttt{sw rs2, off(x2)}        & 2 \\
+		\texttt{c.lw}   & 00 & 010 & CL  & \texttt{lw rd', off(rs1')}      & 2 \\
+		\texttt{c.sw}   & 00 & 110 & CS  & \texttt{sw rs2', off(rs1')}     & 2 \\
+		\bottomrule
+	\end{tabular}
+	\caption{Codificacion de las instrucciones comprimidas implementadas.
+		$^\dagger$\texttt{c.mv} aparecio como subproducto de la desambiguacion del
+		cuadrante 2, pero no era objetivo del proyecto.}
+	\label{cuadro:encoding}
+\end{table}
+
 \section{Resultados}
 
 \subsection{Programa de prueba: multiplicacion sin \texttt{MUL}}
@@ -1272,10 +1472,99 @@ En el waveform se verifican, paso a paso, los mecanismos implementados:
         resultado correcto de $6\times10$.
 \end{itemize}
 
+\subsection{Programa algoritmo: suma con bucle (\texttt{sumloop})}
+
+Para la Parte~2 de RVC se escribio un \textbf{algoritmo} con control de flujo
+real: un bucle que acumula $5+4+3+2+1 = 15$. El cuerpo del bucle son tres
+instrucciones comprimidas (\texttt{c.add}, \texttt{c.addi}, \texttt{c.bnez})
+mezcladas con \texttt{addi}/\texttt{sw} de 32 bits:
+
+\begin{lstlisting}
+    addi x8, x0, 5     ; n = 5             (32 bits)
+    addi x9, x0, 0     ; acc = 0           (32 bits)
+LOOP:
+    add  x9, x9, x8    ; c.add:  acc += n   (16 bits)
+    addi x8, x8, -1    ; c.addi: n--        (16 bits)
+    bnez x8, LOOP      ; c.bnez: repetir    (16 bits)
+    sw   x9, 0(x0)     ; Mem[0] = 15       (32 bits)
+\end{lstlisting}
+
+El \texttt{c.bnez} cierra el bucle apoyandose en la unidad de riesgos, que hace
+\textit{flush} de las instrucciones mal captadas cuando el salto se toma. El
+resultado esperado es \texttt{Mem[0] = 15}.
+
+\subsection{Waveform del algoritmo}
+
+La Figura~\ref{fig:sumloopwave} muestra la ejecucion completa del bucle.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{sumloop_waveform.png}
+  \caption{Ejecucion del algoritmo \texttt{sumloop} ($5+4+3+2+1$). El
+  \texttt{PCF} itera sobre el cuerpo del bucle
+  (\texttt{0x8}$\to$\texttt{0xA}$\to$\texttt{0xC}$\to$\texttt{0x8}),
+  \texttt{compressedF} se activa en las tres comprimidas, y \texttt{ALUResultE}
+  acumula \texttt{5, 9, 12, 14, 15}.}
+  \label{fig:sumloopwave}
+\end{figure}
+
+En la captura se observa:
+\begin{itemize}[leftmargin=1.6em]
+  \item \textbf{El bucle.} \texttt{PCF} vuelve a \texttt{0x8} tras cada
+        \texttt{c.bnez} tomado, mientras el contador (en \texttt{ALUResultE},
+        via \texttt{c.addi}) baja \texttt{5,4,3,2,1}.
+  \item \textbf{Descompresion.} \texttt{InstrF} muestra la comprimida cruda
+        (p.ej. \texttt{0x94A2} para \texttt{c.add}) e \texttt{InstrDecF} su
+        expansion RV32I; la \texttt{c.bnez} \texttt{0xFC75} se expande al
+        \texttt{bne} correspondiente.
+  \item \textbf{La acumulacion.} \texttt{ResultW} muestra la suma parcial
+        \texttt{5, 9, 12, 14, 15} conforme se ejecuta \texttt{c.add}.
+  \item \textbf{Resultado final.} Al terminar el bucle, \texttt{MemWrite=1},
+        \texttt{DataAdr=0} y \texttt{WriteData=15}: \texttt{Mem[0] = 15}.
+\end{itemize}
+
+\subsection{Comparativa de tamano y \textit{performance}}
+
+Se compilo el mismo algoritmo en dos versiones: una que aprovecha las
+comprimidas (\texttt{-march=rv32ic}) y otra forzada a 32 bits
+(\texttt{-march=rv32i}, o \texttt{.option norvc}). Ambas producen exactamente
+el mismo comportamiento, pero difieren en el tamano del codigo:
+
+\begin{table}[H]
+	\centering
+	\small
+	\begin{tabular}{@{}lccc@{}}
+		\toprule
+		\textbf{Version} & \textbf{Instrucciones} & \textbf{Bytes (\texttt{.text})} & \textbf{Reduccion} \\
+		\midrule
+		RV32I puro (32 bits)      & 6 $\times$ 4 B          & 24 & --- \\
+		Con RVC (3 comprimidas)   & 3$\times$4 B + 3$\times$2 B & 18 & \textbf{25\,\%} \\
+		\bottomrule
+	\end{tabular}
+	\caption{Tamano del algoritmo \texttt{sumloop} con y sin compresion.}
+	\label{cuadro:comparativa}
+\end{table}
+
+Sobre el \textbf{tamano}, las tres instrucciones del cuerpo del bucle
+(\texttt{c.add}, \texttt{c.addi}, \texttt{c.bnez}) ahorran 2~bytes cada una: de
+24 a 18~bytes, un \textbf{25\,\% menos}. En programas reales, donde predominan
+las operaciones que tienen equivalente comprimido, el ahorro tipico de RVC ronda
+el 25--30\,\%.
+
+Sobre el \textbf{\textit{performance}}, el numero de instrucciones ejecutadas y
+de ciclos es \textbf{identico} en ambas versiones: tras la descompresion en
+Fetch, el pipeline ve exactamente las mismas instrucciones RV32I y las ejecuta
+en los mismos ciclos. Ademas, la \textbf{ventana deslizante es puramente
+combinacional}, por lo que no anade ni un ciclo de reloj. La ganancia de RVC,
+por tanto, no es de velocidad de ejecucion sino de \textbf{densidad de codigo}:
+un programa mas pequeno cabe mejor en memoria y en la cache de instrucciones,
+lo que en un sistema con cache real reduce los fallos y mejora el rendimiento de
+forma indirecta.
+
 \subsection{Validacion automatizada}
 
 Cada familia de instrucciones se valido con un testbench propio, integrado a la
-regresion completa. Todos los casos pasan (17 de 17, incluidos los 12 de la Parte
+regresion completa. Todos los casos pasan (23 de 23, incluidos los 12 de la Parte
 1 del proyecto):
 
 \begin{center}
@@ -1284,17 +1573,23 @@ regresion completa. Todos los casos pasan (17 de 17, incluidos los 12 de la Part
 \toprule
 \textbf{Prueba} & \textbf{Instrucciones} & \textbf{Resultado} \\
 \midrule
-\texttt{caddi} & \texttt{c.addi} & \texttt{Mem[0]=8} \\
-\texttt{cir}   & \texttt{c.lui, c.slli, c.add} & \texttt{Mem[0]=17, Mem[4]=4096} \\
-\texttt{ca}    & \texttt{c.sub, c.xor, c.or, c.and} & \texttt{Mem[0..12]=2,6,14,8} \\
-\texttt{cb}    & \texttt{c.srli, c.srai, c.andi} & \texttt{Mem[0..8]=10,-4,4} \\
-\texttt{mul10} & \texttt{c.slli, c.add} (mixto) & \texttt{Mem[0]=60} \\
+\texttt{caddi}   & \texttt{c.addi} & \texttt{Mem[0]=8} \\
+\texttt{cir}     & \texttt{c.lui, c.slli, c.add} & \texttt{Mem[0]=17, Mem[4]=4096} \\
+\texttt{ca}      & \texttt{c.sub, c.xor, c.or, c.and} & \texttt{Mem[0..12]=2,6,14,8} \\
+\texttt{cb}      & \texttt{c.srli, c.srai, c.andi} & \texttt{Mem[0..8]=10,-4,4} \\
+\texttt{mul10}   & \texttt{c.slli, c.add} (mixto) & \texttt{Mem[0]=60} \\
+\texttt{clsw}    & \texttt{c.lw, c.sw} & \texttt{Mem[96]=77, Mem[100]=77} \\
+\texttt{clspsp}  & \texttt{c.lwsp, c.swsp} & \texttt{Mem[116]=55, Mem[4]=55} \\
+\texttt{cbz}     & \texttt{c.beqz, c.bnez} & \texttt{Mem[0]=7} \\
+\texttt{cj}      & \texttt{c.j, c.jal} & \texttt{Mem[0]=5} \\
+\texttt{cjr}     & \texttt{c.jr, c.jalr} & \texttt{Mem[0]=9} \\
+\texttt{sumloop} & algoritmo (bucle 16/32) & \texttt{Mem[0]=15} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 Los programas combinan instrucciones de 16 y 32 bits, y cada resultado coincide
-con el valor esperado, confirmando que la extension C funciona correctamente sobre
-el procesador segmentado.
+con el valor esperado, confirmando que las 21 instrucciones comprimidas funcionan
+correctamente sobre el procesador segmentado.
 
 \end{document}

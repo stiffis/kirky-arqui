@@ -28,6 +28,13 @@ Distinción 16/32 bits: `instr[1:0] != 2'b11` indica instrucción comprimida.
 | E2.3 | c.sub, c.and, c.or, c.xor (CA) | hecha |
 | E2.4 | c.srli, c.srai, c.andi (CB) | hecha |
 | E2.5 | programa mixto 16/32 + waveforms + informe | hecha |
+| E3.1 | c.lw, c.sw (CL/CS) | hecha |
+| E3.2 | c.lwsp, c.swsp (CI/CSS) | hecha |
+| E3.3 | c.beqz, c.bnez (CB) | hecha |
+| E3.4 | c.j, c.jal (CJ) | hecha |
+| E3.5 | c.jr, c.jalr (CR) | hecha |
+| E3.6 | programa algoritmo (sumloop) + waveform | hecha |
+| E3.7 | tabla encoding + comparativa + informe | pendiente |
 
 ## Flujo de trabajo por fase
 
@@ -377,3 +384,180 @@ waveform explicado, tabla de validacion 17/17). Compila en 21 paginas.
 ### Estado
 
 Completada (2026-06-24). **Entrega 2 terminada.**
+
+---
+
+## Objetivo de la Entrega 3
+
+Implementar las 10 instrucciones comprimidas restantes (memoria y control de
+flujo):
+
+```
+c.lw  c.sw  c.lwsp  c.swsp  c.beqz  c.bnez  c.j  c.jal  c.jr  c.jalr
+```
+
+Mismo flujo de trabajo que E2: implementar en `decompressor.v`, programa `.mem`
+de prueba, testbench, `make test` en verde, waveform con `.gtkw`.
+
+---
+
+## E3.1 — c.lw, c.sw
+
+### Meta de la fase
+
+Primera pareja de memoria: formatos CL (`c.lw`) y CS (`c.sw`), con registros
+restringidos x8–x15 y un immediate "scrambled" nuevo (offset de 7 bits,
+alineado a palabra).
+
+### Como se implemento y por que
+
+Ambas comparten `{op,funct3}`: `c.lw`=`00_010`, `c.sw`=`00_110`. El offset se
+arma desde los mismos bits en las dos:
+
+```verilog
+wire [6:0] offlw = {c[5], c[12:10], c[6], 2'b00};
+```
+
+`c.lw` expande a `lw rd',offset(rs1')` (I-type):
+
+```verilog
+5'b00_010: instr = {5'b0, offlw, rs1p, 3'b010, rs2p, 7'b0000011};
+```
+
+`c.sw` expande a `sw rs2',offset(rs1')` (S-type, offset partido en
+`imm[11:5]`/`imm[4:0]`):
+
+```verilog
+5'b00_110: instr = {5'b0, offlw[6:5], rs2p, rs1p, 3'b010,
+                     offlw[4:2], 2'b00, 7'b0100011};
+```
+
+**Bug encontrado y corregido:** en `c.lw` el campo destino (`rd'`) vive en
+`c[4:2]` (posición CL), la misma posición que `rs2'` en CS — **no** en
+`c[9:7]` (posición de `rs1'`/CB, donde vive `rdp`). Usar `rdp` para el destino
+de `c.lw` producía un registro incorrecto (`x8` en vez de `x10` en la prueba).
+Se corrigió reutilizando `rs2p` (misma extracción de bits, `{2'b01,c[4:2]}`)
+como destino de `c.lw`. Se depuró con un testbench aislado del
+`decompressor.v` (sin todo el pipeline) para descartar problemas de *fetch*.
+
+### Programa de prueba
+
+`tests/programs/riscvtest_clsw.s`: cadena `sw` (compilada a `c.sw`) + `lw`
+(compilada a `c.lw`) sobre el mismo puntero base (`x8=96`), verificando en
+memoria tanto la escritura de `c.sw` como el valor recuperado por `c.lw`:
+
+```asm
+addi x8, x0, 96
+addi x9, x0, 77
+sw   x9, 0(x8)      ; -> c.sw
+lw   x10, 0(x8)     ; -> c.lw
+sw   x10, 4(x8)     ; confirma que c.lw cargo bien (32 bits, no comprimida)
+```
+
+### Validación
+
+`make test` -> 18 PASS (17 anteriores + `clsw`: `Mem[96]=77, Mem[100]=77`).
+
+### Estado
+
+Completada (2026-06-30).
+
+---
+
+## E3.2 a E3.5 — memoria SP, branches y saltos
+
+### Meta
+
+Cerrar las 8 instrucciones restantes de E3: memoria relativa a `sp`
+(`c.lwsp`/`c.swsp`), branches condicionales (`c.beqz`/`c.bnez`) y saltos
+(`c.j`/`c.jal`/`c.jr`/`c.jalr`).
+
+### Como se implemento y por que
+
+Cada formato trae su propio immediate "scrambled"; se declaran como wires
+para mayor legibilidad:
+
+```verilog
+wire [7:0]  offsp  = {c[3:2], c[12], c[6:4], 2'b00};        // c.lwsp
+wire [7:0]  offssp = {c[8:7], c[12:9], 2'b00};              // c.swsp
+wire [8:0]  offcb  = {c[12], c[6:5], c[2], c[11:10], c[4:3], 1'b0};  // CB
+wire [11:0] offcj  = {c[12], c[8], c[10], c[9], c[6], c[7],
+                      c[2], c[11], c[5:3], 1'b0};            // CJ
+```
+
+- **c.lwsp** (`10_010`) -> `lw rd, offsp(x2)`; **c.swsp** (`10_110`) ->
+  `sw rs2, offssp(x2)`. Base fija en `x2` (sp).
+- **c.beqz** (`01_110`) -> `beq rs1', x0, offcb`; **c.bnez** (`01_111`) ->
+  `bne rs1', x0, offcb`. Comparan un registro restringido contra x0.
+- **c.j** (`01_101`) -> `jal x0, offcj`; **c.jal** (`01_001`) ->
+  `jal x1, offcj`. Se reordena `offcj` al layout J-type del RV32I.
+- **c.jr/c.jalr/c.mv/c.add** comparten `{op,funct3}=10_100`; se desambiguan
+  con `c[12]` y `rs2==0`:
+  - `!c[12] && rs2==0` -> **c.jr** = `jalr x0, rs1, 0`
+  - `!c[12] && rs2!=0` -> **c.mv** = `add rd, x0, rs2`
+  - `c[12] && rs2==0` -> **c.jalr** = `jalr x1, rs1, 0`
+  - `c[12] && rs2!=0` -> **c.add** (ya existia)
+
+Se validaron las 8 expansiones con un testbench aislado del `decompressor.v`,
+comparando byte a byte contra el binario que produce el ensamblador GNU para
+la instruccion equivalente.
+
+### Programas de prueba
+
+- `clspsp`: `c.swsp`/`c.lwsp` sobre `sp=96` -> `Mem[116]=55`, `Mem[4]=55`.
+- `cbz`: dos branches tomados (`c.beqz` con x8=0, `c.bnez` con x9=5) que
+  saltan los `addi` erroneos -> `Mem[0]=7`.
+- `cj`: llamada con `c.jal` + retorno + `c.j` sobre la funcion -> `Mem[0]=5`.
+- `cjr`: `c.jalr` (llamada indirecta, direccion via `jal x5`) + `c.jr`
+  (retorno) -> `Mem[0]=9`. Nota: se evito `la`/`auipc` (no estan en el
+  Cuadro 1); la direccion se obtiene con `jal x5, .+4` + `addi`.
+
+### Validación
+
+`make test` -> 22 PASS.
+
+### Estado
+
+Completada (2026-06-30).
+
+---
+
+## E3.6 — Programa algoritmo (sumloop) + waveform
+
+### Meta
+
+Programa ISA-algoritmo que mezcle 16 y 32 bits con control de flujo real
+(un bucle), como pide la rubrica de resultados de E3.
+
+### Programa
+
+`tests/programs/riscvtest_sumloop.s` calcula `5+4+3+2+1 = 15` con un bucle:
+
+```asm
+    addi x8, x0, 5      ; n = 5           (32 bits)
+    addi x9, x0, 0      ; acc = 0         (32 bits)
+LOOP:
+    add  x9, x9, x8     ; c.add  acc += n  (16 bits)
+    addi x8, x8, -1     ; c.addi n--       (16 bits)
+    bnez x8, LOOP       ; c.bnez repetir   (16 bits)
+    sw   x9, 0(x0)      ; Mem[0] = 15     (32 bits)
+```
+
+El cuerpo del bucle son tres instrucciones comprimidas; el `c.bnez` cierra el
+lazo apoyandose en la unidad de riesgos (flush del salto tomado).
+
+### Waveform
+
+`waves/sumloop/sumloop.vcd` + `waves/sumloop/sumloop.gtkw` (misma vista curada
+que mul10). Muestra el PC iterando sobre el bucle (`0x8`->`0xa`->`0xc`->`0x8`...),
+`compressedF` activo en el cuerpo, la descompresion cruda vs expandida, y
+`ALUResultE` acumulando `5,9,12,14,15`.
+
+### Validación
+
+`make test` -> 23 PASS.
+
+### Estado
+
+Completada (2026-06-30). Falta E3.7 (tabla de encoding, comparativa
+tamano/performance y redaccion del informe).

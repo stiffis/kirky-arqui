@@ -35,6 +35,12 @@ TESTS=(
   "ca     | riscvtest_ca.mem      | testbench_ca.v"
   "cb     | riscvtest_cb.mem      | testbench_cb.v"
   "mul10  | riscvtest_mul10.mem   | testbench_mul10.v"
+  "clsw   | riscvtest_clsw.mem    | testbench_clsw.v"
+  "clspsp | riscvtest_clspsp.mem  | testbench_clspsp.v"
+  "cbz    | riscvtest_cbz.mem     | testbench_cbz.v"
+  "cj     | riscvtest_cj.mem      | testbench_cj.v"
+  "cjr    | riscvtest_cjr.mem     | testbench_cjr.v"
+  "sumloop| riscvtest_sumloop.mem | testbench_sumloop.v"
 )
 
 # imem.v lee "riscvtest.mem" del directorio actual: lo respaldamos y restauramos.
