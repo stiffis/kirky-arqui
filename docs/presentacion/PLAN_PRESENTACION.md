@@ -122,24 +122,92 @@ familias individuales) corre correctamente, los resultados coinciden con lo
 esperado, y hay una comparativa cuantitativa tamaño/performance entre RV32I y
 RVC.
 
-- Frame 14 — Programa de prueba: qué hace el algoritmo (ej. `sumloop`, bucle
-  de suma) y por qué se eligió (ejercita memoria + control de flujo + ALU +
-  RVC juntos, a diferencia de las pruebas por familia que fueron aisladas).
-- Frame 15 — Explicación de resultados: waveform con anotación de qué se debe
-  leer (valor final esperado vs. obtenido).
-  - Figura: `sumloop_waveform.png`
-- Frame 16 — (opcional si alcanza el tiempo) segundo programa de prueba
-  (ej. `mul10`) como refuerzo de robustez.
-  - Figura: `mul10_waveform.png`
-- Frame 17 — Comparativa de tamaño y performance: tabla RV32I vs RVC (bytes de
-  código, número de ciclos/instrucciones ejecutadas).
+**Algoritmo elegido: búsqueda binaria** (`riscvtest_bsearch.s`) — reemplaza a
+`sumloop`. Busca `18` en `[3,7,12,18,25]`, encuentra índice `3` en 2
+iteraciones. Se eligió porque, a diferencia de `sumloop` (solo suma en loop),
+mezcla memoria real (`c.lw`/`c.sw` con dirección calculada en runtime),
+aritmética (`c.add`, `c.addi`), shifts (`c.slli`, `c.srli`) y saltos (`c.j`,
+`beq`/`blt` sin comprimir) — y de regalo dispara un **load-use hazard real**
+(`c.lw x12` seguido de `beq x12,...`) que conecta directo con la Hazard Unit
+del Capítulo 2.
+
+- Frame 14 — Presentar el algoritmo: qué hace (búsqueda binaria, O(log n)),
+  los datos de entrada (`[3,7,12,18,25]`, target=18), y por qué se eligió
+  sobre alternativas más simples (mezcla memoria+aritmética+control, y
+  reaparece el load-use hazard en un caso real).
+- Frame 15 — Explicación de resultados (walkthrough en 3 pasos, usando las 3
+  capturas ya generadas en `waves/bsearch/capturas/`):
+  1. **Setup** (`1_setup_arreglo.png`): el arreglo se escribe en memoria — 5
+     `sw`, uno por elemento.
+  2. **Iteración 1** (`2_iteracion1_mid2.png`): `mid=2`, `arr[2]=12 < 18` →
+     va a la derecha. Señalar el **stall** al final del tramo (`c.lw x12` →
+     `beq x12,...` inmediato) — "esto es la hazard unit del Capítulo 2,
+     resolviendo un caso real, no solo el test aislado".
+  3. **Iteración 2 + resultado** (`3_iteracion2_found.png`): `mid=3`,
+     `arr[3]=18==18` → encontrado. Dos `MemWrite`: el log (`Mem[64]=3`) y el
+     resultado final (`Mem[52]=3`).
+  Narrativa: "el programa no solo da el resultado correcto — el waveform
+  prueba paso a paso *por qué* es correcto, iteración por iteración."
+- Frame 16 — Comparativa de tamaño y performance. Dos partes, sin oración de
+  cierre/remate — solo el hecho y la razón, se explica y se pasa al siguiente
+  frame:
+  1. **Performance**: mismo programa, dos versiones (RV32I puro vs. RVC),
+     mismo resultado en **545 ciclos en ambas** (medido, no estimado). Razón:
+     el descompresor es combinacional y vive antes del registro IF/ID — no
+     agrega etapas ni ciclos, así que ninguna instrucción cuesta más por
+     estar comprimida. Formalizado con la ecuación del libro (Harris &
+     Harris, Cap. 7): `Execution Time = #instrucciones × CPI × Tc` — los tres
+     términos son iguales en ambas versiones, consecuencia del diseño, no de
+     la aritmética.
+  2. **Tamaño**: tabla instrucción por instrucción — de las **37
+     instrucciones** totales (mismo algoritmo, mismo control flow en ambas
+     versiones), **12 se comprimen** a 16 bits y **25 quedan en 32 bits**.
+     Cada instrucción comprimida ahorra 2 bytes exactos → `12 × 2 = 24 bytes`
+     ahorrados. RV32I puro: `37 × 4 = 148 bytes`. RVC: `148 - 24 = 124 bytes`.
+     Resultado: **32% de las instrucciones comprimidas → 16% menos código
+     total**, con cero costo en ciclos.
+- (Frame de refuerzo con `mul10`/`sumloop` — degradado a opcional/backup, solo
+  si sobra tiempo; no ocupa slot fijo).
 
 ## 5. Conclusiones, desafíos y mejoras — 0.5 pts (~1.5 min, 1-2 frames)
 
-- Frame 18 — Conclusiones: qué se logró (pipeline + hazard unit + RVC
-  completo y validado).
-- Frame 19 — Desafíos encontrados (elegir 1-2 reales, no una lista genérica)
-  y mejoras futuras (ej. subset RVC más amplio, testbenches por etapa).
+- Frame 18 — Conclusiones:
+  - Pipeline de 5 etapas completo (RV32I, 24 instrucciones) + Hazard Unit
+    funcional, validada empíricamente con y sin ella (falla sin, funciona
+    con).
+  - Extensión RVC (21 instrucciones, E2+E3) integrada sin modificar
+    pipeline/control/hazard unit — todo resuelto en un descompresor
+    combinacional antes de IF/ID.
+  - Validación incremental por fases, regresión completa en verde (26/26
+    tests).
+  - `bsearch` demuestra todo integrado a la vez: pipeline + hazard unit + RVC
+    funcionando juntos, con 16% menos código y cero costo en ciclos.
+- Frame 19 — Desafíos reales (tres, concretos):
+  1. **Bug de timing en el regfile (E1):** con una dependencia a distancia 3
+     (WB y Decode leyendo/escribiendo el mismo registro en el mismo ciclo),
+     el regfile genérico del Cap. 5 (`posedge`) no hacía visible el dato a
+     tiempo — Decode leía el valor viejo. Se corrigió migrando a
+     **write-first en `negedge`**, siguiendo la Sección 7.5.1 del libro. Fue
+     el puente hacia el diseño del forwarding (redujo el caso a resolver de
+     distancia 1-3 a solo 1-2).
+  2. **Bug real en `c.lw` (E3):** el campo destino vive en `c[4:2]` (posición
+     de `rs2'`/CS), no en `c[9:7]` como parecía por analogía con CB — usar el
+     campo equivocado daba el registro incorrecto. Se depuró aislando el
+     `decompressor.v` del resto del pipeline con un testbench directo del
+     módulo.
+  3. **Manejar la cantidad de archivos `.mem`/testbench:** cada familia de
+     instrucciones y cada programa de prueba generó su propio par
+     `riscvtest_X.mem` + `testbench_X.v` (más de 25 pares a esta altura) —
+     mantenerlos sincronizados y coherentes (mismo nombre, misma convención
+     de direcciones) fue un desafío de organización tanto como de diseño.
+- Frame 19b (o mismo frame si entra) — Mejoras futuras:
+  1. Ampliar el subset de RVC (`c.li`, `c.addi16sp`, `c.addi4spn`) y agregar
+     detección de encoding ilegal (trap), hoy ausente.
+  2. **Predicción de branches:** hoy cada salto tomado paga el costo de
+     flush (visible en el waveform de `bsearch`); una predicción estática
+     simple (backward=taken) reduciría ese costo, acercando el CPI real al
+     ideal de 1 — es justamente el siguiente tema que cubre Harris & Harris
+     en "Advanced Microarchitecture" (Cap. 7).
 
 ## 6. Cierre (~10 s)
 

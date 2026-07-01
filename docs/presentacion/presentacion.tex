@@ -66,6 +66,27 @@
 \end{frame}
 
 % ============================================================
+\section{Proceso de construcción}
+% ============================================================
+
+\begin{frame}{Metodología: incremental, por entregas}
+  \begin{itemize}
+    \item<1-> \textbf{E1 (5 pts)}: pipeline base de 5 etapas + Hazard Unit
+      (forward/stall/flush) + ISA RV32I (24 instrucciones).
+    \item<2-> \textbf{E2 (4 pts)}: extensión C, parte 1 --- 11 instrucciones
+      comprimidas de ALU/registro-inmediato.
+    \item<3-> \textbf{E3 (3 pts)}: extensión C, parte 2 --- 10 instrucciones
+      de memoria y control de flujo.
+  \end{itemize}
+  \vspace{0.3cm}
+  \begin{block}{Ciclo por fase}
+    implementar $\to$ programa de prueba $\to$ testbench $\to$ waveform
+    $\to$ siguiente fase. Este patrón se ve en detalle en los próximos dos
+    capítulos.
+  \end{block}
+\end{frame}
+
+% ============================================================
 \section{Pipeline y Hazard Unit}
 % ============================================================
 
@@ -99,34 +120,45 @@
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Sin unidad de riesgos: los programas fallan}
+\begin{frame}{Forward: adelantar el dato}
+  El programa quiere usar un resultado apenas calculado en la instrucción
+  siguiente; sin \textit{forwarding} lee el valor viejo del banco de
+  registros.
   \begin{columns}
     \column{0.5\textwidth}
+    \centering \scriptsize Sin Hazard Unit (falla)\\
     \includegraphics[width=\textwidth]{../hazard_forward_nohu.png}
     \column{0.5\textwidth}
-    \begin{itemize}
-      \item \texttt{add x3,x1,x2} lee \texttt{x1}/\texttt{x2} \textbf{antes}
-        de que se escriban en Writeback.
-      \item \texttt{ALUResultE} sale en \texttt{X}.
-      \item El dato corrupto llega hasta \texttt{WriteData}.
-    \end{itemize}
+    \centering \scriptsize Con Hazard Unit (\texttt{ForwardAE/BE})\\
+    \includegraphics[width=\textwidth]{../hazard_forward_waveform.png}
   \end{columns}
 \end{frame}
 
-\begin{frame}{Solución: \textit{forwarding}, \textit{stall}, \textit{flush}}
-  \begin{itemize}
-    \item<1-> \textbf{Forwarding}: adelanta el resultado desde EX/MEM o
-      MEM/WB directo a la ALU (\texttt{ForwardAE/BE}).
-    \item<2-> \textbf{Stalling}: detiene Fetch/Decode un ciclo en el caso
-      \textit{load-use} (\texttt{StallF/D}).
-    \item<3-> \textbf{Flushing}: descarta instrucciones mal captadas tras un
-      salto tomado (\texttt{FlushD/E}).
-  \end{itemize}
-  \vspace{0.3cm}
-  \begin{exampleblock}{Resultado}
-    Los mismos tres programas (forward, stall, flush) \textbf{pasan}
-    correctamente con la hazard unit activa.
-  \end{exampleblock}
+\begin{frame}{Stall: el caso \textit{load-use}}
+  El programa quiere usar un valor que recién se está leyendo de memoria; no
+  se puede resolver solo con \textit{forwarding} --- hay que detener el
+  pipeline un ciclo.
+  \begin{columns}
+    \column{0.5\textwidth}
+    \centering \scriptsize Sin Hazard Unit (falla)\\
+    \includegraphics[width=\textwidth]{../hazard_stall_nohu.png}
+    \column{0.5\textwidth}
+    \centering \scriptsize Con Hazard Unit (\texttt{StallF/D})\\
+    \includegraphics[width=\textwidth]{../hazard_stall_waveform.png}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Flush: descartar tras un salto}
+  El programa tiene un salto/branch; las instrucciones ya cargadas en el
+  pipeline detrás del salto son incorrectas y hay que descartarlas.
+  \begin{columns}
+    \column{0.5\textwidth}
+    \centering \scriptsize Sin Hazard Unit (falla)\\
+    \includegraphics[width=\textwidth]{../hazard_flush_nohu.png}
+    \column{0.5\textwidth}
+    \centering \scriptsize Con Hazard Unit (\texttt{FlushD/E})\\
+    \includegraphics[width=\textwidth]{../hazard_flush_waveform.png}
+  \end{columns}
 \end{frame}
 
 \begin{frame}{Datapath final: implementación de instrucciones}
@@ -155,6 +187,29 @@
     Execute, Memory, Writeback, \texttt{controller}, \texttt{hazardunit}
     \textbf{no se modifican}.
   \end{alertblock}
+\end{frame}
+
+\begin{frame}{Validación incremental por familia}
+  Cada familia se implementó, probó y validó \textbf{antes} de pasar a la
+  siguiente --- no se validó todo junto al final.
+  \begin{center}
+  \tiny
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    \textbf{Entrega} & \textbf{Familia (formato)} & \textbf{Programa / resultado} \\
+    \midrule
+    E2 & CI: \texttt{c.addi, c.lui, c.slli} & \texttt{caddi}, \texttt{cir} \checkmark \\
+    E2 & CR: \texttt{c.add} & \texttt{cir} \checkmark \\
+    E2 & CA: \texttt{c.sub, c.xor, c.or, c.and} & \texttt{ca} \checkmark \\
+    E2 & CB: \texttt{c.srli, c.srai, c.andi} & \texttt{cb} \checkmark \\
+    E3 & CL/CS: \texttt{c.lw, c.sw} & \texttt{clsw} \checkmark \\
+    E3 & CI/CSS: \texttt{c.lwsp, c.swsp} & \texttt{clspsp} \checkmark \\
+    E3 & CB: \texttt{c.beqz, c.bnez} & \texttt{cbz} \checkmark \\
+    E3 & CJ: \texttt{c.j, c.jal} & \texttt{cj} \checkmark \\
+    E3 & CR: \texttt{c.jr, c.jalr} & \texttt{cjr} \checkmark \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
 \end{frame}
 
 \begin{frame}[fragile]{Cambios en el datapath}
@@ -237,9 +292,6 @@ wire [6:0] offlw = {c[5], c[12:10], c[6], 2'b00};
                      3'b010, offlw[4:2], 2'b00,
                      7'b0100011};                    // c.sw
 \end{lstlisting}
-  \alert{Bug detectado y corregido}: el destino de \texttt{c.lw} vive en
-  \texttt{c[4:2]} (formato CL), no en \texttt{c[9:7]} --- se confunde
-  fácilmente con \texttt{rs1'}.
 \end{frame}
 
 \begin{frame}[fragile]{Ejemplo: desambiguación \texttt{c.jr}/\texttt{c.jalr}/\texttt{c.add}}
@@ -271,10 +323,14 @@ else
 \end{frame}
 
 \begin{frame}[fragile]{Encoding de las 21 instrucciones}
-  \tiny
-  \begin{columns}
-    \column{0.5\textwidth}
-    \begin{tabular}{@{}llll@{}}
+  \vfill
+  \renewcommand{\arraystretch}{1.2}
+  \small
+  \centering
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \centering
+    \begin{tabular}{@{}cccc@{}}
       \toprule
       \textbf{Instr.} & \textbf{op} & \textbf{f3} & \textbf{Fmt} \\
       \midrule
@@ -288,15 +344,16 @@ else
       \texttt{c.xor}  & 01 & 100 & CA \\
       \texttt{c.or}   & 01 & 100 & CA \\
       \texttt{c.and}  & 01 & 100 & CA \\
-      \texttt{c.j}    & 01 & 101 & CJ \\
-      \texttt{c.beqz} & 01 & 110 & CB \\
       \bottomrule
     \end{tabular}
-    \column{0.5\textwidth}
-    \begin{tabular}{@{}llll@{}}
+    \column{0.48\textwidth}
+    \centering
+    \begin{tabular}{@{}cccc@{}}
       \toprule
       \textbf{Instr.} & \textbf{op} & \textbf{f3} & \textbf{Fmt} \\
       \midrule
+      \texttt{c.j}    & 01 & 101 & CJ \\
+      \texttt{c.beqz} & 01 & 110 & CB \\
       \texttt{c.bnez} & 01 & 111 & CB \\
       \texttt{c.slli} & 10 & 000 & CI \\
       \texttt{c.lwsp} & 10 & 010 & CI \\
@@ -309,88 +366,159 @@ else
       \bottomrule
     \end{tabular}
   \end{columns}
-  \vspace{2mm}
-  \small\centering \texttt{op = c[1:0]}, \texttt{funct3 = c[15:13]}
+  \vspace{4mm}
+  \texttt{op = c[1:0]}, \texttt{funct3 = c[15:13]}
+  \vfill
 \end{frame}
 
-\begin{frame}{Limitaciones de RVC}
+\begin{frame}{Limitaciones}
   \begin{itemize}
-    \item \texttt{c.beqz}/\texttt{c.bnez} solo comparan contra \texttt{x0}: no
-      existe compresión directa de \texttt{blt}/\texttt{bge}.
-    \item \textit{Offsets} de memoria limitados: \texttt{c.lw}/\texttt{c.sw}
-      hasta 124; superarlo obliga a materializar la dirección con
-      instrucciones extra.
-    \item Registros restringidos (\texttt{x8--x15}) en varios formatos:
-      limita qué instrucciones se pueden comprimir según el registro usado.
+    \item<1-> \textbf{Subset de RVC no cubierto}: \texttt{c.nop},
+      \texttt{c.li}, \texttt{c.addi16sp}, \texttt{c.addi4spn},
+      \texttt{c.ebreak} --- el foco fueron las 21 instrucciones de E2+E3.
+      Tampoco hay punto flotante comprimido ni RV64C (fuera de alcance de una
+      base RV32I).
+    \item<2-> \textbf{Registros restringidos} (limitación del estándar RVC,
+      no del diseño propio): CA, CB, CL y CS solo direccionan
+      \texttt{x8--x15} --- un compilador real tendría que priorizar esos
+      registros para aprovechar la compresión al máximo.
+    \item<3-> \textbf{Sin detección de encoding ilegal}: un patrón de 16 bits
+      que no corresponda a ninguna instrucción soportada no genera trap ---
+      el comportamiento queda indefinido.
   \end{itemize}
+  \vspace{0.2cm}
+  \begin{alertblock}{Nota aparte}
+    \texttt{c.mv} sí está implementado (subproducto de la desambiguación del
+    cuadrante 2), aunque no se presenta como instrucción propia porque no fue
+    pedida explícitamente.
+  \end{alertblock}
 \end{frame}
 
 % ============================================================
 \section{Resultados: algoritmo y comparativa}
 % ============================================================
 
-\begin{frame}[fragile]{Programa algoritmo: \texttt{sumloop}}
-  Bucle que acumula $5+4+3+2+1=15$, mezclando 32 y 16 bits:
-\begin{lstlisting}
-    addi x8, x0, 5     ; n = 5            (32 bits)
-    addi x9, x0, 0     ; acc = 0          (32 bits)
+\begin{frame}[fragile]{Programa algoritmo: búsqueda binaria}
+  \footnotesize Busca \texttt{18} en \texttt{[3,7,12,18,25]}; dispara un
+  \textit{load-use hazard} real (\texttt{c.lw x12} $\to$ \texttt{beq
+  x12,...}), conectando directo con la Hazard Unit.
+  \begin{columns}[T]
+    \column{0.5\textwidth}
+\begin{lstlisting}[basicstyle=\tiny\ttfamily]
+// setup: Mem[32..48]=[3,7,12,18,25]
+addi x14,x0,32    // base
+addi x8,x0,0      // lo = 0
+addi x9,x0,4      // hi = 4
+addi x13,x0,18    // target
+
 LOOP:
-    add  x9, x9, x8    ; c.add: acc += n  (16 bits)
-    addi x8, x8, -1    ; c.addi: n--      (16 bits)
-    bnez x8, LOOP      ; c.bnez: repetir  (16 bits)
-    sw   x9, 0(x0)     ; Mem[0] = 15      (32 bits)
+  blt   x9,x8,NOTFOUND
+  addi  x10,x8,0
+  c.add x10,x9      // mid=lo+hi
+  c.srli x10,1      // mid >>= 1
+  addi  x11,x10,0
+  c.slli x11,2      // addr=mid*4
+  c.add x11,x14     // addr+=base
+  c.lw  x12,0(x11)  // value
+  beq   x12,x13,FOUND
+  blt   x12,x13,GO_RIGHT
 \end{lstlisting}
+    \column{0.5\textwidth}
+\begin{lstlisting}[basicstyle=\tiny\ttfamily]
+GO_LEFT:
+  addi   x9,x10,0
+  c.addi x9,-1      // hi=mid-1
+  c.j    LOOP
+
+GO_RIGHT:
+  addi   x8,x10,0
+  c.addi x8,1       // lo=mid+1
+  c.j    LOOP
+
+FOUND:
+  sw   x10,20(x14)  // indice
+  c.j  END
+
+NOTFOUND:
+  addi x10,x0,-1
+  sw   x10,20(x14)
+END:
+\end{lstlisting}
+  \end{columns}
 \end{frame}
 
-\begin{frame}{Waveform del algoritmo}
+\begin{frame}{Explicación de resultados (1/5): setup}
   \centering
-  \includegraphics[width=\textwidth]{../sumloop_waveform.png}
-  {\scriptsize \texttt{PCF} itera $0x8{\to}0xA{\to}0xC{\to}0x8$;
-  \texttt{ALUResultE} acumula $5,9,12,14,15$.}
+  \includegraphics[width=\textwidth,height=0.72\textheight,keepaspectratio]{../../waves/bsearch/capturas_gtkwave/1_setup.png}
+  {\scriptsize El arreglo \texttt{[3,7,12,18,25]} se escribe en memoria:
+  \texttt{sw} consecutivos hacia \texttt{Mem[32..48]}.}
 \end{frame}
 
-\begin{frame}{Comparativa: tamaño y \textit{performance}}
+\begin{frame}{Explicación de resultados (2/5): fin de setup, inicio del loop}
+  \centering
+  \includegraphics[width=\textwidth,height=0.72\textheight,keepaspectratio]{../../waves/bsearch/capturas_gtkwave/2_fin_setup_inicio_loop.png}
+  {\scriptsize Últimos elementos del arreglo escritos; se inicializan
+  \texttt{lo}, \texttt{hi}, \texttt{target} y el puntero de log --- entra al
+  \texttt{LOOP}.}
+\end{frame}
+
+\begin{frame}{Explicación de resultados (3/5): iteración 1}
+  \centering
+  \includegraphics[width=\textwidth,height=0.72\textheight,keepaspectratio]{../../waves/bsearch/capturas_gtkwave/3_iteracion1_stall.png}
+  {\scriptsize Cálculo de \texttt{mid}, lectura de \texttt{arr[mid]} con
+  \texttt{c.lw} y comparación inmediata en \texttt{beq} --- el load-use
+  hazard real, resuelto por la misma Hazard Unit del Capítulo 2.}
+\end{frame}
+
+\begin{frame}{Explicación de resultados (4/5): iteración 2}
+  \centering
+  \includegraphics[width=\textwidth,height=0.72\textheight,keepaspectratio]{../../waves/bsearch/capturas_gtkwave/4_iteracion2.png}
+  {\scriptsize Segunda vuelta del loop: nuevo \texttt{mid}, nueva lectura de
+  memoria, nueva comparación --- el mismo patrón de la iteración 1, ahora
+  con \texttt{lo}/\texttt{hi} actualizados.}
+\end{frame}
+
+\begin{frame}{Explicación de resultados (5/5): encontrado}
+  \centering
+  \noindent\makebox[\linewidth][c]{\includegraphics[width=\textwidth,height=0.72\textheight,keepaspectratio]{../../waves/bsearch/capturas_gtkwave/5_resultado.png}}
+  {\scriptsize \texttt{arr[mid]==target} $\to$ encontrado. \texttt{Mem[52]=3}:
+  el índice correcto de \texttt{18} en \texttt{[3,7,12,18,25]}.}
+\end{frame}
+
+\begin{frame}{Comparativa: \textit{performance}}
+  \begin{block}{Hecho medido}
+    RV32I puro y RVC: \textbf{545 ciclos en ambas} versiones (mismo
+    algoritmo, mismo resultado).
+  \end{block}
+  \begin{exampleblock}{Razón}
+    El descompresor es combinacional y vive \textbf{antes} del registro
+    IF/ID --- no agrega etapas ni ciclos. Ninguna instrucción cuesta más por
+    estar comprimida.
+  \end{exampleblock}
+  \begin{alertblock}{Execution Time}
+    \centering \texttt{Execution Time = \#instrucciones × CPI × Tc} \\
+    \small Los tres términos son iguales en ambas versiones: mismo
+    \#instrucciones, mismo CPI, mismo Tc.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Comparativa: tamaño}
+  De 37 instrucciones totales (mismo algoritmo en ambas versiones):
   \begin{table}
     \centering
     \small
     \begin{tabular}{@{}lccc@{}}
       \toprule
-      \textbf{Versión} & \textbf{Instrucciones} & \textbf{Bytes} & \textbf{Reducción} \\
+      \textbf{Versión} & \textbf{Instr. 32b} & \textbf{Instr. 16b} & \textbf{Bytes} \\
       \midrule
-      RV32I puro & $6\times4$B & 24 & --- \\
-      Con RVC & $3\times4$B $+$ $3\times2$B & 18 & \textbf{25\,\%} \\
+      RV32I puro & 37 & 0 & $37\times4=148$ \\
+      Con RVC & 25 & 12 & $25\times4+12\times2=124$ \\
       \bottomrule
     \end{tabular}
   \end{table}
-  \begin{columns}
-    \column{0.5\textwidth}
-    \begin{block}{Tamaño}
-      25\,\% menos código. En programas reales, 25--30\,\% típico.
-    \end{block}
-    \column{0.5\textwidth}
-    \begin{alertblock}{\textit{Performance}}
-      \textbf{Idéntico}: mismos ciclos, misma cantidad de instrucciones
-      ejecutadas. La ventana deslizante no cuesta ciclos.
-    \end{alertblock}
-  \end{columns}
-\end{frame}
-
-\begin{frame}{Validación}
   \begin{center}
-  \small
-  \begin{tabular}{@{}lll@{}}
-    \toprule
-    \textbf{Categoría} & \textbf{Pruebas} & \textbf{Resultado} \\
-    \midrule
-    Pipeline base (E1) & 12 testbenches & \checkmark \\
-    RVC Parte 1 (E2) & caddi, cir, ca, cb, mul10 & \checkmark \\
-    RVC Parte 2 (E3) & clsw, clspsp, cbz, cj, cjr & \checkmark \\
-    Algoritmo & sumloop & \checkmark \\
-    \bottomrule
-  \end{tabular}
-  \end{center}
-  \begin{center}
-    \Large \textbf{23 / 23 PASS}
+    \textbf{12 de 37 instrucciones comprimidas (32\,\%) $\to$ 24 bytes
+    ahorrados (16\,\% menos código)}, con cero costo en ciclos.
   \end{center}
 \end{frame}
 
@@ -398,24 +526,57 @@ LOOP:
 \section{Conclusiones}
 % ============================================================
 
-\begin{frame}{Conclusiones, desafíos y mejoras}
+\begin{frame}{Conclusiones}
   \begin{itemize}
-    \item<1-> \textbf{Conclusión clave}: descomprimir en Fetch permite añadir
-      todo un ISA nuevo \textbf{sin tocar} el pipeline ni la hazard unit.
-    \item<2-> \textbf{Desafío principal}: los \textit{immediates} barajados
-      (\textit{scrambled}) --- fácil confundir posiciones de bits entre
-      formatos CL/CS/CB/CJ/CI/CSS.
-    \item<3-> \textbf{Mejora a futuro}: soportar \textit{illegal instruction}
-      trap para comprimidas mal formadas; extender a RV64C.
+    \item<1-> Pipeline de 5 etapas completo (RV32I, 24 instrucciones) +
+      Hazard Unit funcional, validada con y sin ella (falla sin, funciona
+      con).
+    \item<2-> Extensión RVC (21 instrucciones, E2+E3) integrada
+      \textbf{sin modificar} pipeline/control/hazard unit --- todo resuelto
+      en un descompresor combinacional antes de IF/ID.
+    \item<3-> Validación incremental por fases, regresión completa en verde
+      (26/26 tests).
+    \item<4-> \texttt{bsearch} demuestra todo integrado a la vez: pipeline +
+      hazard unit + RVC funcionando juntos, con 16\,\% menos código y cero
+      costo en ciclos.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Desafíos reales}
+  \begin{itemize}
+    \item<1-> \textbf{Timing del regfile (E1)}: con dependencia a distancia
+      3 (WB y Decode en el mismo ciclo), el regfile genérico
+      (\texttt{posedge}) no hacía visible el dato a tiempo. Corregido con
+      \textbf{write-first en \texttt{negedge}} (Harris \& Harris, Sec.
+      7.5.1) --- puente hacia el forwarding.
+    \item<2-> \textbf{Bug real en \texttt{c.lw} (E3)}: el destino vive en
+      \texttt{c[4:2]}, no en \texttt{c[9:7]} como sugería la analogía con
+      CB. Depurado aislando el \texttt{decompressor.v} del resto del
+      pipeline.
+    \item<3-> \textbf{Volumen de archivos}: más de 25 pares
+      \texttt{.mem}/testbench --- mantenerlos sincronizados fue un desafío
+      de organización tanto como de diseño.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Mejoras futuras}
+  \begin{itemize}
+    \item<1-> Ampliar el subset de RVC (\texttt{c.li}, \texttt{c.addi16sp},
+      \texttt{c.addi4spn}) y agregar detección de encoding ilegal (trap),
+      hoy ausente.
+    \item<2-> \textbf{Predicción de branches}: cada salto tomado paga el
+      costo de \textit{flush} (visible en el waveform de \texttt{bsearch});
+      una predicción estática simple (\textit{backward=taken}) acercaría el
+      CPI real al ideal de 1.
   \end{itemize}
 \end{frame}
 
 \begin{frame}
   \centering
   \Huge Gracias
-  \vspace{1cm}
+  \vspace{0.5cm}
 
-  \normalsize Preguntas
+  \includegraphics[height=0.55\textheight]{../fgsfds-osaka.png}
 \end{frame}
 
 \end{document}
